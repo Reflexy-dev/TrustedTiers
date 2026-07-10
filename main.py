@@ -24,12 +24,26 @@ def keep_alive():
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
+intents.manage_roles = True  # Necessario per assegnare i ruoli delle Tier
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Struttura dati per la coda interna
-# Formato: {gamemode: [list of {'user_id': id, 'mc_name': name, 'ticket_channel': channel}] }
-GAMEMODES = ["Sword", "Axe", "UHC", "DiaPot", "NethPot", "DiaSMP", "SMP", "SpearMace", "Mace", "Cart", "Crystal"]
+# Dizionario delle Gamemode associate alle rispettive Emoji per i menu e i log
+GAMEMODE_EMOJIS = {
+    "Sword": "⚔️",
+    "Axe": "🪓",
+    "UHC": "🍎",
+    "DiaPot": "💎",
+    "NethPot": "🔥",
+    "DiaSMP": "🛡️",
+    "SMP": "🏡",
+    "SpearMace": "🔱",
+    "Mace": "🔨",
+    "Cart": "🛒",
+    "Crystal": "🔮"
+}
+
+GAMEMODES = list(GAMEMODE_EMOJIS.keys())
 queues = {gm: [] for gm in GAMEMODES}
 
 class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
@@ -43,13 +57,12 @@ class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
         await interaction.response.defer(ephemeral=True)
         guild = interaction.guild
         
-        # Crea il ticket temporaneo in attesa
+        # Permessi del canale temporaneo (Il player non può scrivere finché non tocca a lui)
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(read_messages=False),
-            interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=False), # Non può scrivere finché non è il suo turno
+            interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=False),
         }
         
-        # Cerca il ruolo Tester
         tester_role = discord.utils.get(guild.roles, name="Tester")
         if tester_role:
             overwrites[tester_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
@@ -57,7 +70,6 @@ class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
         channel_name = f"⏳-wait-{self.gamemode.lower()}-{interaction.user.name}"
         ticket_channel = await guild.create_text_channel(name=channel_name, overwrites=overwrites)
         
-        # Aggiungi alla coda
         player_data = {
             'user_id': interaction.user.id,
             'mc_name': self.mc_name.value,
@@ -66,9 +78,9 @@ class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
         queues[self.gamemode].append(player_data)
         pos = len(queues[self.gamemode])
 
-        # Messaggio interno al ticket
+        emoji = GAMEMODE_EMOJIS.get(self.gamemode, "❓")
         embed = discord.Embed(
-            title=f"Queue for {self.gamemode}",
+            title=f"{emoji} Queue for {self.gamemode}",
             description=f"Hello {interaction.user.mention}, you have been added to the queue.\n\n"
                         f"**Minecraft Username:** `{self.mc_name.value}`\n"
                         f"**Your Position:** #{pos}\n\n"
@@ -76,14 +88,16 @@ class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
             color=discord.Color.orange()
         )
         
-        # Control panel per i Tester
         view = TesterControlView(self.gamemode, player_data)
         await ticket_channel.send(embed=embed, view=view)
         await interaction.followup.send(f"Ticket created! Check {ticket_channel.mention}", ephemeral=True)
 
 class GamemodeSelect(discord.ui.Select):
     def __init__(self):
-        options = [discord.SelectOption(label=gm, description=f"Queue for {gm} test") for gm in GAMEMODES]
+        options = [
+            discord.SelectOption(label=gm, emoji=GAMEMODE_EMOJIS[gm], description=f"Queue for {gm} test") 
+            for gm in GAMEMODES
+        ]
         super().__init__(placeholder="Choose a Gamemode to test...", min_values=1, max_values=1, options=options)
 
     async def callback(self, interaction: discord.Interaction):
@@ -102,7 +116,6 @@ class TesterControlView(discord.ui.View):
 
     @discord.ui.button(label="Start Test", style=discord.ButtonStyle.green)
     async def start_test(self, interaction: discord.Interaction):
-        # Verifica se l'utente ha il ruolo Tester
         if not any(role.name == "Tester" for role in interaction.user.roles) and not interaction.user.guild_permissions.administrator:
             await interaction.response.send_message("Only Testers can use this button!", ephemeral=True)
             return
@@ -112,16 +125,19 @@ class TesterControlView(discord.ui.View):
         player = guild.get_member(self.player_data['user_id'])
         
         if player:
-            # Sblocca la chat per il player
             await channel.set_permissions(player, read_messages=True, send_messages=True)
+            emoji = GAMEMODE_EMOJIS.get(self.gamemode, "")
             await channel.edit(name=f"🟢-test-{self.gamemode.lower()}-{player.name}")
             
-            # Aggiorna le posizioni degli altri in coda
             if self.player_data in queues[self.gamemode]:
                 queues[self.gamemode].remove(self.player_data)
-                # Opzionale: potresti ciclare i canali rimasti per aggiornare l'embed della posizione
                 
-            await interaction.response.send_message(f"Test started! {player.mention} you can now chat. Topic: **Test {self.gamemode}**", view=None)
+            await interaction.response.send_message(
+                f"Test started! {player.mention} you can now chat.\n"
+                f"Topic: **Test {emoji} {self.gamemode}**\n"
+                f"Use `/result` to publish score, and use `/next_tier` when you completely finish to close the ticket.", 
+                view=None
+            )
         else:
             await interaction.response.send_message("Player left the server.", ephemeral=True)
 
@@ -134,7 +150,6 @@ async def on_ready():
     except Exception as e:
         print(e)
 
-# Comando per piazzare il pannello dei ticket iniziale (Usa solo l'owner)
 @bot.command()
 @commands.is_owner()
 async def setup_queue(ctx):
@@ -145,7 +160,7 @@ async def setup_queue(ctx):
     )
     await ctx.send(embed=embed, view=MainTicketView())
 
-# Comando Slash per registrare il verdetto finale
+# COMANDO RESULT (UGUALE A PRIMA MA CON SKIN E ASSEGNAZIONE RUOLO AUTOMATICA, NON CHIUDE IL TICKET)
 @bot.tree.command(name="result", description="Submit a tierlist test result")
 @app_commands.describe(
     player="The Discord user tested",
@@ -153,58 +168,85 @@ async def setup_queue(ctx):
     gamemode="The gamemode tested",
     result_score="The score (e.g. 2-1, 3-0)",
     previous_rank="Their old tier (or Unranked)",
-    rank_earned="The new tier earned"
+    rank_earned="The new tier earned (e.g. LT4, HT2, LT1)"
 )
 async def result(
     interaction: discord.Interaction, 
-    player: discord.User, 
+    player: discord.Member, 
     minecraft_name: str,
     gamemode: str,
     result_score: str,
     previous_rank: str,
     rank_earned: str
 ):
-    # Controllo Ruolo Tester
     if not any(role.name == "Tester" for role in interaction.user.roles) and not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("You must be a Tester to use this command.", ephemeral=True)
         return
 
     await interaction.response.defer()
 
-    # Recupera il rendering 3D del corpo della skin tramite Visage (API pubblica e sicura)
-    skin_url = f"https://surgeplay.com{minecraft_name}"
+    # URL API ufficiale e stabile per il rendering 3D del corpo completo della skin
+    skin_url = f"https://crafatar.com{minecraft_name}?overlay"
 
-    embed = discord.Embed(color=0x2f3136) # Colore scuro simile a Discord/MCTiers
-    embed.set_author(name=f"{interaction.user.display_name}'s Test Results 🏆", icon_url=interaction.user.display_avatar.url)
+    emoji = GAMEMODE_EMOJIS.get(gamemode, "🏆")
+    embed = discord.Embed(color=0x2f3136)
+    embed.set_author(name=f"{interaction.user.display_name}'s Test Results", icon_url=interaction.user.display_avatar.url)
     
     embed.add_field(name="Tester:", value=interaction.user.mention, inline=False)
-    embed.add_field(name="Gamemode:", value=f"`{gamemode}` (Score: {result_score})", inline=False)
+    embed.add_field(name="Gamemode:", value=f"{emoji} `{gamemode}` (Score: {result_score})", inline=False)
     embed.add_field(name="Username:", value=f"*{minecraft_name}* ({player.mention})", inline=False)
     embed.add_field(name="Previous Rank:", value=previous_rank, inline=True)
     embed.add_field(name="Rank Earned:", value=f"**{rank_earned}**", inline=True)
     
-    # Inserisce la skin a destra esattamente come nell'immagine d'esempio
-    embed.set_thumbnail(url=skin_url)
+    # Imposta la Skin a destra come miniatura grande
+    embed.set_image(url=skin_url)
 
-    # Invia il messaggio nel canale in cui viene eseguito il comando
+    # Invia il messaggio sul canale dei risultati
     msg = await interaction.followup.send(embed=embed)
     
-    # Aggiunge le reazioni classiche per i voti sotto
     reactions = ["👑", "🥳", "😱", "😭", "😂", "💀"]
-    for emoji in reactions:
-        await msg.add_reaction(emoji)
+    for emo in reactions:
+        await msg.add_reaction(emo)
 
-    # Elimina automaticamente il canale del ticket dopo 5 secondi se è un canale di test
+    # GESTIONE AUTOMATICA DEI RUOLI DISCORD (Es: "LT4 Axe" o "LT1 Sword")
+    role_name = f"{rank_earned} {gamemode}"
+    guild = interaction.guild
+    role = discord.utils.get(guild.roles, name=role_name)
+    
+    # Se il ruolo specifico non esiste sul server, il bot lo crea da solo
+    if not role:
+        try:
+            role = await guild.create_role(name=role_name, mentionable=True, color=discord.Color.light_gray())
+            await interaction.channel.send(f"⚠️ Discord role `{role_name}` did not exist. I have created it automatically.")
+        except Exception as e:
+            await interaction.channel.send(f"❌ Failed to create role `{role_name}`: {e}")
+
+    # Assegna il ruolo al player testato
+    if role:
+        try:
+            await player.add_roles(role)
+            await interaction.channel.send(f"✅ Automatically assigned role {role.mention} to {player.mention}!")
+        except Exception as e:
+            await interaction.channel.send(f"❌ Could not assign role to user. Check bot permissions hierarchy. Error: {e}")
+
+# NUOVO COMANDO PER CHIUDERE IL TICKET MANUALE
+@bot.tree.command(name="next_tier", description="Completely finish the current session and close this ticket")
+async def next_tier(interaction: discord.Interaction):
+    if not any(role.name == "Tester" for role in interaction.user.roles) and not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("You must be a Tester to use this command.", ephemeral=True)
+        return
+
     channel = interaction.channel
-    if "🟢-test-" in channel.name:
-        await channel.send("Closing this ticket in 5 seconds...")
+    if "🟢-test-" in channel.name or "⏳-wait-" in channel.name:
+        await interaction.response.send_message("Closing this test session and deleting the channel in 5 seconds...")
         await discord.utils.sleep_until(discord.utils.utcnow() + discord.timedelta(seconds=5))
         await channel.delete()
+    else:
+        await interaction.response.send_message("This command can only be used inside a test ticket channel!", ephemeral=True)
 
 keep_alive()
-# METTI IL TUO TOKEN DISCORD QUI SOTTO SE TESTI IN LOCALE, ALTRIMENTI USA RENDER
 TOKEN = os.environ.get("DISCORD_TOKEN")
 if TOKEN:
     bot.run(TOKEN)
 else:
-    print("No token found. Please configure DISCORD_TOKEN environment variable.")
+    print("MTUyNTE1OTYzNTM0OTI3NDY4NA.GB0lLr.T-YSE0GtwFo5nmMa7_baVrjCJRcuw2tqxHQfqQ")
