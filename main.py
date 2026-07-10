@@ -24,11 +24,10 @@ def keep_alive():
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
-intents.manage_roles = True  # Necessario per assegnare i ruoli delle Tier
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Dizionario delle Gamemode associate alle rispettive Emoji per i menu e i log
+# Dizionario delle Gamemode associate alle rispettive Emoji
 GAMEMODE_EMOJIS = {
     "Sword": "⚔️",
     "Axe": "🪓",
@@ -57,7 +56,6 @@ class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
         await interaction.response.defer(ephemeral=True)
         guild = interaction.guild
         
-        # Permessi del canale temporaneo (Il player non può scrivere finché non tocca a lui)
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(read_messages=False),
             interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=False),
@@ -160,7 +158,6 @@ async def setup_queue(ctx):
     )
     await ctx.send(embed=embed, view=MainTicketView())
 
-# COMANDO RESULT (UGUALE A PRIMA MA CON SKIN E ASSEGNAZIONE RUOLO AUTOMATICA, NON CHIUDE IL TICKET)
 @bot.tree.command(name="result", description="Submit a tierlist test result")
 @app_commands.describe(
     player="The Discord user tested",
@@ -185,7 +182,7 @@ async def result(
 
     await interaction.response.defer()
 
-    # URL API ufficiale e stabile per il rendering 3D del corpo completo della skin
+    # API Crafatar per estrarre la skin 3D del corpo intero tramite l'username
     skin_url = f"https://crafatar.com{minecraft_name}?overlay"
 
     emoji = GAMEMODE_EMOJIS.get(gamemode, "🏆")
@@ -198,22 +195,20 @@ async def result(
     embed.add_field(name="Previous Rank:", value=previous_rank, inline=True)
     embed.add_field(name="Rank Earned:", value=f"**{rank_earned}**", inline=True)
     
-    # Imposta la Skin a destra come miniatura grande
-    embed.set_image(url=skin_url)
+    # Imposta la Skin a destra dell'embed in grande
+    embed.set_thumbnail(url=skin_url)
 
-    # Invia il messaggio sul canale dei risultati
     msg = await interaction.followup.send(embed=embed)
     
     reactions = ["👑", "🥳", "😱", "😭", "😂", "💀"]
     for emo in reactions:
         await msg.add_reaction(emo)
 
-    # GESTIONE AUTOMATICA DEI RUOLI DISCORD (Es: "LT4 Axe" o "LT1 Sword")
+    # ASSEGNAZIONE RUOLO DISCORD AUTOMATICA
     role_name = f"{rank_earned} {gamemode}"
     guild = interaction.guild
     role = discord.utils.get(guild.roles, name=role_name)
     
-    # Se il ruolo specifico non esiste sul server, il bot lo crea da solo
     if not role:
         try:
             role = await guild.create_role(name=role_name, mentionable=True, color=discord.Color.light_gray())
@@ -221,7 +216,6 @@ async def result(
         except Exception as e:
             await interaction.channel.send(f"❌ Failed to create role `{role_name}`: {e}")
 
-    # Assegna il ruolo al player testato
     if role:
         try:
             await player.add_roles(role)
@@ -229,7 +223,6 @@ async def result(
         except Exception as e:
             await interaction.channel.send(f"❌ Could not assign role to user. Check bot permissions hierarchy. Error: {e}")
 
-# NUOVO COMANDO PER CHIUDERE IL TICKET MANUALE
 @bot.tree.command(name="next_tier", description="Completely finish the current session and close this ticket")
 async def next_tier(interaction: discord.Interaction):
     if not any(role.name == "Tester" for role in interaction.user.roles) and not interaction.user.guild_permissions.administrator:
@@ -245,6 +238,5 @@ async def next_tier(interaction: discord.Interaction):
         await interaction.response.send_message("This command can only be used inside a test ticket channel!", ephemeral=True)
 
 keep_alive()
-TOKEN = "MTUyNTE1OTYzNTM0OTI3NDY4NA.GB0lLr.T-YSE0GtwFo5nmMa7_baVrjCJRcuw2tqxHQfqQ"
-
+TOKEN = os.environ.get("DISCORD_TOKEN")
 bot.run(TOKEN)
