@@ -245,8 +245,6 @@ async def next_tier(interaction: discord.Interaction):
         await interaction.response.send_message("This command can only be used inside a test ticket channel!", ephemeral=True)
 
 keep_alive()
-TOKEN = os.environ.get("DISCORD_TOKEN")
-if TOKEN:
-    bot.run(TOKEN)
-else:
-    print("MTUyNTE1OTYzNTM0OTI3NDY4NA.GB0lLr.T-YSE0GtwFo5nmMa7_baVrjCJRcuw2tqxHQfqQ")
+TOKEN = "MTUyNTE1OTYzNTM0OTI3NDY4NA.GB0lLr.T-YSE0GtwFo5nmMa7_baVrjCJRcuw2tqxHQfqQ"
+
+bot.run(TOKEN)
