@@ -114,8 +114,15 @@ class TesterControlView(discord.ui.View):
 
     @discord.ui.button(label="Start Test", style=discord.ButtonStyle.green)
     async def start_test(self, interaction: discord.Interaction):
-        if not any(role.name == "Tester" for role in interaction.user.roles) and not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("Only Testers can use this button!", ephemeral=True)
+        # Dice a Discord di aspettare senza dare l'errore dei 3 secondi
+        await interaction.response.defer()
+
+        is_owner = interaction.user.id == interaction.guild.owner_id
+        is_admin = interaction.user.guild_permissions.administrator
+        is_tester = any(role.name == "Tester" for role in interaction.user.roles)
+
+        if not (is_owner or is_admin or is_tester):
+            await interaction.followup.send("Only Testers or Admins can use this button!", ephemeral=True)
             return
 
         channel = interaction.channel
@@ -123,6 +130,7 @@ class TesterControlView(discord.ui.View):
         player = guild.get_member(self.player_data['user_id'])
         
         if player:
+            # Sblocca la chat per il giocatore
             await channel.set_permissions(player, read_messages=True, send_messages=True)
             emoji = GAMEMODE_EMOJIS.get(self.gamemode, "")
             await channel.edit(name=f"🟢-test-{self.gamemode.lower()}-{player.name}")
@@ -130,14 +138,13 @@ class TesterControlView(discord.ui.View):
             if self.player_data in queues[self.gamemode]:
                 queues[self.gamemode].remove(self.player_data)
                 
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"Test started! {player.mention} you can now chat.\n"
                 f"Topic: **Test {emoji} {self.gamemode}**\n"
-                f"Use `/result` to publish score, and use `/next_tier` when you completely finish to close the ticket.", 
-                view=None
+                f"Use `/result` to publish score, and use `/next_tier` when you completely finish to close the ticket."
             )
         else:
-            await interaction.response.send_message("Player left the server.", ephemeral=True)
+            await interaction.followup.send("Player left the server.", ephemeral=True)
 
 @bot.event
 async def on_ready():
