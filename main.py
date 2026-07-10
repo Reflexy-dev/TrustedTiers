@@ -137,7 +137,7 @@ async def on_ready():
 # Comando per piazzare il pannello dei ticket iniziale (Usa solo l'owner)
 @bot.command()
 @commands.is_owner()
-def setup_queue(ctx):
+async def setup_queue(ctx):
     embed = discord.Embed(
         title="⚔️ Request a Tierlist Test",
         description="Select the gamemode you want to be tested in from the dropdown menu below.",
