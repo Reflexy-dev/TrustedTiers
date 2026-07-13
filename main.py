@@ -4,9 +4,9 @@ from discord import app_commands
 import os
 from flask import Flask
 from threading import Thread
-import aiohttp
+import asyncio
 
-# --- CONFIGURAZIONE FLASK PER KEEP-ALIVE ---
+# --- CONFIGURAZIONE FLASK PER KEEP-ALIVE (Render + UptimeRobot) ---
 app = Flask('')
 
 @app.route('/')
@@ -14,7 +14,9 @@ def home():
     return "Bot is online!"
 
 def run():
-    app.run(host='0.0.0.0', port=8080)
+    # Render assegna una porta dinamica tramite variabile d'ambiente, altrimenti usa 8080
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host='0.0.0.0', port=port)
 
 def keep_alive():
     t = Thread(target=run)
@@ -114,15 +116,17 @@ class TesterControlView(discord.ui.View):
 
     @discord.ui.button(label="Start Test", style=discord.ButtonStyle.green)
     async def start_test(self, interaction: discord.Interaction):
-        # Dice a Discord di aspettare senza dare l'errore dei 3 secondi
+        # 1. RISOLTO ERRORE INTERAZIONE: Diciamo subito a Discord di attendere l'elaborazione
         await interaction.response.defer()
 
-        is_owner = interaction.user.id == interaction.guild.owner_id
+        # 2. RISOLTO CONTROLLO RUOLI: Verifica se l'utente è Owner, Amministratore o ha i ruoli specificati
+        is_owner_guild = interaction.user.id == interaction.guild.owner_id
         is_admin = interaction.user.guild_permissions.administrator
         is_tester = any(role.name == "Tester" for role in interaction.user.roles)
+        is_owner_role = any(role.name == "Owner" for role in interaction.user.roles)
 
-        if not (is_owner or is_admin or is_tester):
-            await interaction.followup.send("Only Testers or Admins can use this button!", ephemeral=True)
+        if not (is_owner_guild or is_admin or is_tester or is_owner_role):
+            await interaction.followup.send("❌ Solo i Tester o gli Owner scritti nei ruoli possono avviare questo test!", ephemeral=True)
             return
 
         channel = interaction.channel
@@ -130,7 +134,6 @@ class TesterControlView(discord.ui.View):
         player = guild.get_member(self.player_data['user_id'])
         
         if player:
-            # Sblocca la chat per il giocatore
             await channel.set_permissions(player, read_messages=True, send_messages=True)
             emoji = GAMEMODE_EMOJIS.get(self.gamemode, "")
             await channel.edit(name=f"🟢-test-{self.gamemode.lower()}-{player.name}")
@@ -139,12 +142,12 @@ class TesterControlView(discord.ui.View):
                 queues[self.gamemode].remove(self.player_data)
                 
             await interaction.followup.send(
-                f"Test started! {player.mention} you can now chat.\n"
-                f"Topic: **Test {emoji} {self.gamemode}**\n"
-                f"Use `/result` to publish score, and use `/next_tier` when you completely finish to close the ticket."
+                f"🟢 Test iniziato! {player.mention} adesso puoi scrivere in chat.\n"
+                f"Modalità: **Test {emoji} {self.gamemode}**\n"
+                f"Usa `/result` per pubblicare il punteggio finale e `/next_tier` quando hai finito per chiudere il ticket."
             )
         else:
-            await interaction.followup.send("Player left the server.", ephemeral=True)
+            await interaction.followup.send("Il giocatore ha abbandonato il server Discord.", ephemeral=True)
 
 @bot.event
 async def on_ready():
@@ -183,26 +186,31 @@ async def result(
     previous_rank: str,
     rank_earned: str
 ):
-    if not any(role.name == "Tester" for role in interaction.user.roles) and not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("You must be a Tester to use this command.", ephemeral=True)
+    # Controllo permessi anche per il comando dei risultati
+    is_tester = any(role.name == "Tester" for role in interaction.user.roles)
+    is_owner_role = any(role.name == "Owner" for role in interaction.user.roles)
+    is_admin = interaction.user.guild_permissions.administrator
+
+    if not (is_tester or is_owner_role or is_admin):
+        await interaction.response.send_message("❌ Devi avere il ruolo Tester o Owner per usare questo comando.", ephemeral=True)
         return
 
     await interaction.response.defer()
 
-    # API Crafatar per estrarre la skin 3D del corpo intero tramite l'username
+    # 3. RISOLTO SKIN URL: Corretto l'indirizzo dell'API di Crafatar per mostrare il render 3D completo
     skin_url = f"https://crafatar.com{minecraft_name}?overlay"
 
     emoji = GAMEMODE_EMOJIS.get(gamemode, "🏆")
     embed = discord.Embed(color=0x2f3136)
-    embed.set_author(name=f"{interaction.user.display_name}'s Test Results", icon_url=interaction.user.display_avatar.url)
+    embed.set_author(name=f"Risultati Test di {interaction.user.display_name}", icon_url=interaction.user.display_avatar.url)
     
     embed.add_field(name="Tester:", value=interaction.user.mention, inline=False)
-    embed.add_field(name="Gamemode:", value=f"{emoji} `{gamemode}` (Score: {result_score})", inline=False)
-    embed.add_field(name="Username:", value=f"*{minecraft_name}* ({player.mention})", inline=False)
-    embed.add_field(name="Previous Rank:", value=previous_rank, inline=True)
-    embed.add_field(name="Rank Earned:", value=f"**{rank_earned}**", inline=True)
+    embed.add_field(name="Gamemode:", value=f"{emoji} `{gamemode}` (Punteggio: {result_score})", inline=False)
+    embed.add_field(name="Username MC:", value=f"*{minecraft_name}* ({player.mention})", inline=False)
+    embed.add_field(name="Tier Precedente:", value=previous_rank, inline=True)
+    embed.add_field(name="Nuovo Tier Guadagnato:", value=f"**{rank_earned}**", inline=True)
     
-    # Imposta la Skin a destra dell'embed in grande
+    # Imposta l'immagine della skin sul lato destro dell'embed
     embed.set_thumbnail(url=skin_url)
 
     msg = await interaction.followup.send(embed=embed)
@@ -211,7 +219,7 @@ async def result(
     for emo in reactions:
         await msg.add_reaction(emo)
 
-    # ASSEGNAZIONE RUOLO DISCORD AUTOMATICA
+    # --- ASSEGNAZIONE RUOLO DISCORD AUTOMATICA ---
     role_name = f"{rank_earned} {gamemode}"
     guild = interaction.guild
     role = discord.utils.get(guild.roles, name=role_name)
@@ -219,31 +227,38 @@ async def result(
     if not role:
         try:
             role = await guild.create_role(name=role_name, mentionable=True, color=discord.Color.light_gray())
-            await interaction.channel.send(f"⚠️ Discord role `{role_name}` did not exist. I have created it automatically.")
+            await interaction.channel.send(f"⚠️ Il ruolo `{role_name}` non esisteva. L'ho creato automaticamente.")
         except Exception as e:
-            await interaction.channel.send(f"❌ Failed to create role `{role_name}`: {e}")
+            await interaction.channel.send(f"❌ Impossibile creare il ruolo `{role_name}`: {e}")
 
     if role:
         try:
             await player.add_roles(role)
-            await interaction.channel.send(f"✅ Automatically assigned role {role.mention} to {player.mention}!")
+            await interaction.channel.send(f"✅ Ruolo {role.mention} assegnato automaticamente a {player.mention}!")
         except Exception as e:
-            await interaction.channel.send(f"❌ Could not assign role to user. Check bot permissions hierarchy. Error: {e}")
+            await interaction.channel.send(f"❌ Impossibile assegnare il ruolo. Verifica che il ruolo del bot sia posizionato PIÙ IN ALTO rispetto a `{role_name}` nella lista dei ruoli del server. Errore: {e}")
 
 @bot.tree.command(name="next_tier", description="Completely finish the current session and close this ticket")
 async def next_tier(interaction: discord.Interaction):
-    if not any(role.name == "Tester" for role in interaction.user.roles) and not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("You must be a Tester to use this command.", ephemeral=True)
+    is_tester = any(role.name == "Tester" for role in interaction.user.roles)
+    is_owner_role = any(role.name == "Owner" for role in interaction.user.roles)
+    is_admin = interaction.user.guild_permissions.administrator
+
+    if not (is_tester or is_owner_role or is_admin):
+        await interaction.response.send_message("❌ Devi avere il ruolo Tester o Owner per usare questo comando.", ephemeral=True)
         return
 
     channel = interaction.channel
     if "🟢-test-" in channel.name or "⏳-wait-" in channel.name:
-        await interaction.response.send_message("Closing this test session and deleting the channel in 5 seconds...")
-        await discord.utils.sleep_until(discord.utils.utcnow() + discord.timedelta(seconds=5))
+        await interaction.response.send_message("Chiusura della sessione e rimozione del canale in corso (5 secondi)...")
+        await asyncio.sleep(5)
         await channel.delete()
     else:
-        await interaction.response.send_message("This command can only be used inside a test ticket channel!", ephemeral=True)
+        await interaction.response.send_message("❌ Questo comando può essere usato solo all'interno di un canale ticket di test!", ephemeral=True)
 
+# Avvio del server Flask per mantenere in vita il processo
 keep_alive()
+
+# Caricamento del Token dalle variabili d'ambiente di Render ed esecuzione del bot
 TOKEN = os.environ.get("DISCORD_TOKEN")
 bot.run(TOKEN)
