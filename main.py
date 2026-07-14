@@ -154,15 +154,33 @@ class StaffControlView(discord.ui.View):
 
     @discord.ui.button(label="Join as Tester", style=discord.ButtonStyle.blurple, custom_id="join_as_tester_btn")
     async def join_tester(self, interaction: discord.Interaction):
+        # Impostiamo l'utente corrente come tester attivo
         self.tester_1 = interaction.user
+        
+        # Generiamo il nuovo embed aggiornato con la menzione corretta
         new_embed = generate_queue_embed(self.gamemode, tester_1=self.tester_1.mention)
-        await interaction.response.edit_message(embed=new_embed, view=ActiveStaffActionsView(self.gamemode, self))
+        
+        # Generiamo la nuova vista dei comandi avanzati (Next e Leave) passandole i dati correnti
+        next_actions_view = ActiveStaffActionsView(self.gamemode, self.tester_1)
+        
+        # RISOLTO: edita il messaggio aggiornando embed e bottoni contemporaneamente, azzerando l'errore di interazione
+        await interaction.response.edit_message(embed=new_embed, view=next_actions_view)
 
 class ActiveStaffActionsView(discord.ui.View):
-    def __init__(self, gamemode, parent_view):
+    def __init__(self, gamemode, current_tester):
         super().__init__(timeout=None)
         self.gamemode = gamemode
-        self.parent = parent_view
+        self.current_tester = current_tester
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        # Solo il tester che ha fatto Join (o un Admin/Owner) può premere Next o Leave
+        is_owner_guild = interaction.user.id == interaction.guild.owner_id
+        is_admin = interaction.user.guild_permissions.administrator
+        
+        if interaction.user != self.current_tester and not (is_owner_guild or is_admin):
+            await interaction.response.send_message("❌ You are not the active tester who joined this board!", ephemeral=True)
+            return False
+        return True
 
     @discord.ui.button(label="Next Player", style=discord.ButtonStyle.green)
     async def next_player_private(self, interaction: discord.Interaction):
@@ -178,12 +196,14 @@ class ActiveStaffActionsView(discord.ui.View):
             await interaction.response.send_message("⚠️ Player left the server. Entry skipped.", ephemeral=True)
             return
 
+        # Diciamo a Discord di attendere per evitare timeout durante la creazione delle stanze
         await interaction.response.defer()
 
         category = discord.utils.get(guild.categories, name="🎯Tierlist")
         if not category:
             category = await guild.create_category("🎯Tierlist")
 
+        # Configurazione permessi stanza privata (Tester + Player esaminato)
         private_overwrites = {
             guild.default_role: discord.PermissionOverwrite(read_messages=False),
             interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
@@ -205,19 +225,14 @@ class ActiveStaffActionsView(discord.ui.View):
             view=eval_view
         )
         
-        t1_m = self.parent.tester_1.mention if self.parent.tester_1 else "None"
-        refreshed_embed = generate_queue_embed(self.gamemode, tester_1=t1_m)
+        # Aggiorna il tabellone togliendo il player che è appena andato in match
+        refreshed_embed = generate_queue_embed(self.gamemode, tester_1=self.current_tester.mention)
         await interaction.message.edit(embed=refreshed_embed)
 
     @discord.ui.button(label="Leave Session", style=discord.ButtonStyle.red)
     async def leave_session(self, interaction: discord.Interaction):
-        if interaction.user == self.parent.tester_1:
-            self.parent.tester_1 = None
-        else:
-            await interaction.response.send_message("❌ You are not an active tester on this board.", ephemeral=True)
-            return
-
-        refreshed_embed = generate_queue_embed(self.parent.gamemode, tester_1="None")
+        # Resetta il tabellone allo stato iniziale con "None" come tester e rimette il tasto "Join" originale
+        refreshed_embed = generate_queue_embed(self.gamemode, tester_1="None")
         await interaction.response.edit_message(embed=refreshed_embed, view=StaffControlView(self.gamemode))
 
 class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
