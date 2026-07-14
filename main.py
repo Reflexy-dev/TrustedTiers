@@ -7,7 +7,7 @@ from threading import Thread
 import asyncio
 from datetime import datetime, timedelta
 
-# --- FLASK CONFIGURATION FOR KEEP-ALIVE (Render + UptimeRobot) ---
+# --- FLASK CONFIGURATION FOR KEEP-ALIVE ---
 app = Flask('')
 
 @app.route('/')
@@ -29,15 +29,14 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Gamemodes associated with their respective Emojis
 GAMEMODE_EMOJIS = {
     "Sword": "⚔️", "Axe": "🪓", "UHC": "🍎", "DiaPot": "💎", "NethPot": "🔥",
     "DiaSMP": "🛡️", "SMP": "🏡", "SpearMace": "🔱", "Mace": "🔨", "Cart": "🛒", "Crystal": "🔮"
 }
 
 GAMEMODES = list(GAMEMODE_EMOJIS.keys())
-queues = {gm: [] for gm in GAMEMODES}  # Live queue memory store
-cooldowns = {}                         # user_id: datetime of expiry (7 days)
+queues = {gm: [] for gm in GAMEMODES}
+cooldowns = {}
 
 def is_user_in_any_queue(user_id):
     for gm in GAMEMODES:
@@ -48,6 +47,7 @@ def is_user_in_any_queue(user_id):
 # --- ULTRA SIMPLE EMBED QUEUE GENERATOR ---
 def generate_queue_embed(gamemode, tester_1="None", tester_2="None"):
     emoji = GAMEMODE_EMOJIS.get(gamemode, "❓")
+    
     embed = discord.Embed(
         title=f"{emoji} {gamemode.upper()} LIVE TESTING BOARD",
         color=discord.Color.blurple()
@@ -83,8 +83,9 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         self.add_item(self.new_rank)
 
     async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=True)
         
+        guild = interaction.guild
         rank_earned = self.new_rank.value.upper().strip()
         score_val = self.score.value
         prev_rank_val = self.prev_rank.value
@@ -104,22 +105,18 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         high_ranks = ["LT2", "HT2", "LT1", "HT1"]
         channel_name = "🥇│hight-results" if any(hr in rank_earned for hr in high_ranks) else "🏆│results"
         
-        target_channel = discord.utils.get(interaction.guild.text_channels, name=channel_name)
+        target_channel = discord.utils.get(guild.text_channels, name=channel_name)
         
         if target_channel:
             msg = await target_channel.send(embed=embed)
             reactions = ["👑", "🥳", "😱", "😭", "😂", "💀"]
             for emo in reactions: await msg.add_reaction(emo)
-            await interaction.followup.send(f"✅ Published to {target_channel.mention}!", ephemeral=True)
-        else:
-            msg = await interaction.followup.send(content=f"⚠️ Channel `{channel_name}` not found.", embed=embed)
-            reactions = ["👑", "🥳", "😱", "😭", "😂", "💀"]
-            for emo in reactions: await msg.add_reaction(emo)
-
+        
+        # Apply Cooldown
         cooldowns[self.player_member.id] = datetime.utcnow() + timedelta(days=7)
 
+        # Assign Discord Tier Role
         role_name = f"{rank_earned} {self.gamemode}"
-        guild = interaction.guild
         role = discord.utils.get(guild.roles, name=role_name)
         if not role:
             try: role = await guild.create_role(name=role_name, mentionable=True, color=discord.Color.light_gray())
@@ -128,14 +125,13 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
             try: await self.player_member.add_roles(role)
             except Exception: pass
 
-        # Clean the private test room by removing the player
+        # Clean up the private channel after evaluation
         wait_channel = guild.get_channel(self.ticket_channel_id)
         if wait_channel:
-            try:
-                await wait_channel.set_permissions(self.player_member, overwrite=None)
-                await wait_channel.edit(name=f"🟢-test-{self.gamemode.lower()}")
-            except Exception:
-                pass
+            try: await wait_channel.delete()
+            except Exception: pass
+
+        await interaction.followup.send("✅ Evaluation submitted and channel closed!", ephemeral=True)
 
 # --- ADVANCED DYNAMIC STAFF DASHBOARD VIEW ---
 class StaffControlView(discord.ui.View):
@@ -197,29 +193,20 @@ class ActiveStaffActionsView(discord.ui.View):
             await interaction.response.send_message("⚠️ Player left the server. Entry skipped.", ephemeral=True)
             return
 
-        category = discord.utils.get(guild.categories, name="🎯Tierlist")
-        if not category:
-            category = await guild.create_category("🎯Tierlist")
-
-        # Blind private room (Only current Tester + Player. Owner/Admin excluded completely)
-        private_overwrites = {
-            guild.default_role: discord.PermissionOverwrite(read_messages=False),
-            interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
-            player_member: discord.PermissionOverwrite(read_messages=True, send_messages=True)
-        }
-
-        room_name = f"🔒-{self.gamemode.lower()}-{player_member.name}"
-        private_room = await guild.create_text_channel(name=room_name, category=category, overwrites=private_overwrites)
-
+        # Open the evaluation input immediately
         await interaction.response.send_modal(FastResultModal(
             player_member=player_member,
             mc_name=current_player_data['mc_name'],
             gamemode=self.gamemode,
-            ticket_channel_id=private_room.id
+            ticket_channel_id=current_player_data['ticket_channel_id']
         ))
 
-        await private_room.send(f"⚡ Private Match Room\nTester: {interaction.user.mention}\nPlayer: {player_member.mention}\n\nDiscuss your matching procedures here. Staff will compile scores directly from this terminal.")
-        
+        # Alert the private room that the test is starting
+        private_room = guild.get_channel(current_player_data['ticket_channel_id'])
+        if private_room:
+            await private_room.send(f"⚡ **Evaluation Started!**\nTester {interaction.user.mention} is currently compiling your stats. Please stay ready.")
+
+        # Update the live board embed layout
         t1_m = self.parent.tester_1.mention if self.parent.tester_1 else "None"
         t2_m = self.parent.tester_2.mention if self.parent.tester_2 else "None"
         refreshed_embed = generate_queue_embed(self.gamemode, tester_1=t1_m, tester_2=t2_m)
@@ -237,7 +224,7 @@ class ActiveStaffActionsView(discord.ui.View):
 
         t1_m = self.parent.tester_1.mention if self.parent.tester_1 else "None"
         t2_m = self.parent.tester_2.mention if self.parent.tester_2 else "None"
-        refreshed_embed = generate_queue_embed(self.gamemode, tester_1=t1_m, tester_2=t2_m)
+        refreshed_embed = generate_queue_embed(self.parent.gamemode, tester_1=t1_m, tester_2=t2_m)
         next_view = self.parent if (self.parent.tester_1 or self.parent.tester_2) else StaffControlView(self.gamemode)
         await interaction.response.edit_message(embed=refreshed_embed, view=next_view)
 
@@ -269,13 +256,43 @@ class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
                 
         await interaction.response.defer(ephemeral=True)
         
+        # 1. RISOLTO: Creazione immediata del canale privato dentro 🎯Tierlist appena il player si iscrive!
+        category = discord.utils.get(guild.categories, name="🎯Tierlist")
+        if not category:
+            category = await guild.create_category("🎯Tierlist")
+
+        specific_tester_role = discord.utils.get(guild.roles, name=f"Tester {self.gamemode}")
+        owner_role = discord.utils.get(guild.roles, name="Owner")
+        
+        # Blind channel configuration (Solo il player e lo staff specifico vedono questa stanza)
+        private_overwrites = {
+            guild.default_role: discord.PermissionOverwrite(read_messages=False),
+            interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+        }
+        if specific_tester_role: 
+            private_overwrites[specific_tester_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+        if owner_role: 
+            private_overwrites[owner_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+
+        room_name = f"⏳-{self.gamemode.lower()}-{interaction.user.name}"
+        private_room = await guild.create_text_channel(name=room_name, category=category, overwrites=private_overwrites)
+
+        # Salviamo l'ID esatto della stanza appena creata
         player_data = {
             'user_id': user_id,
             'mc_name': self.mc_name.value,
-            'ticket_channel_id': interaction.channel.id
+            'ticket_channel_id': private_room.id
         }
         queues[self.gamemode].append(player_data)
-        await interaction.followup.send("✅ Successfully registered to the live testing board!", ephemeral=True)
+        
+        # Welcoming instructions printed inside the new isolated waiting zone
+        await private_room.send(
+            f"⚡ Welcome to your private {self.gamemode} Testing Room!\n"
+            f"Player: {interaction.user.mention}\n"
+            f"Minecraft Account: {self.mc_name.value}\n\n"
+            f"Please wait here. An authorized tester will open your evaluation shortly."
+        )
+        await interaction.followup.send(f"✅ Success! Your private room has been created: {private_room.mention}", ephemeral=True)
 
 # --- DROPDOWN INTERFACE COMPONENTS ---
 class GamemodeSelect(discord.ui.Select):
