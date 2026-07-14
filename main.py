@@ -35,6 +35,7 @@ GAMEMODE_EMOJIS = {
 GAMEMODES = list(GAMEMODE_EMOJIS.keys())
 queues = {gm: [] for gm in GAMEMODES}
 cooldowns = {}
+active_testers = {gm: None for gm in GAMEMODES}  # Memoria fissa per i tester attivi
 
 def is_user_in_any_queue(user_id):
     for gm in GAMEMODES:
@@ -42,7 +43,7 @@ def is_user_in_any_queue(user_id):
             return True
     return False
 
-def generate_queue_embed(gamemode, tester_1="None"):
+def generate_queue_embed(gamemode):
     emoji = GAMEMODE_EMOJIS.get(gamemode, "❓")
     embed = discord.Embed(
         title=f"{emoji} {gamemode.upper()} LIVE TESTING BOARD",
@@ -56,8 +57,10 @@ def generate_queue_embed(gamemode, tester_1="None"):
         for idx, player in enumerate(queues[gamemode], start=1):
             queue_list += f"**[{idx}]** <@{player['user_id']}> — MC: `{player['mc_name']}`\n"
             
+    tester_mention = f"<@{active_testers[gamemode]}>" if active_testers[gamemode] else "None"
+    
     embed.add_field(name="📋 Players Waiting", value=queue_list, inline=False)
-    embed.add_field(name="🧑‍🏫 Active Tester", value=tester_1, inline=False)
+    embed.add_field(name="🧑‍🏫 Active Tester", value=tester_mention, inline=False)
     return embed
 
 class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
@@ -130,127 +133,47 @@ class QuickEvalView(discord.ui.View):
         self.gm = gm
         self.r_id = r_id
     
-    @discord.ui.button(label="Input Results & Close", style=discord.ButtonStyle.green)
+    @discord.ui.button(label="Input Results & Close", style=discord.ButtonStyle.green, custom_id="input_results_fixed_btn")
     async def open_modal_inside(self, btn_interaction: discord.Interaction):
         await btn_interaction.response.send_modal(FastResultModal(self.p_mem, self.mc_n, self.gm, self.r_id))
 
+# --- PERSISTENT STAFF CONTROL VIEW (ANTIBUG AD ACCESSO FISSO) ---
 class StaffControlView(discord.ui.View):
     def __init__(self, gamemode):
         super().__init__(timeout=None)
         self.gamemode = gamemode
-        self.tester_1 = None
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        # L'Owner, gli Admin e i Tester specifici possono interagire con la pulsantiera
         is_owner_guild = interaction.user.id == interaction.guild.owner_id
         is_admin = interaction.user.guild_permissions.administrator
         specific_role_needed = f"Tester {self.gamemode}"
         has_role = any(role.name == specific_role_needed for role in interaction.user.roles)
         is_owner_role = any(role.name == "Owner" for role in interaction.user.roles)
         
-        # Se il bottone premuto è Next o Leave, controlliamo anche che l'utente sia effettivamente il tester che ha fatto Join
-        if interaction.data.get("custom_id") in ["next_player_btn", "leave_session_btn"]:
-            if self.tester_1 and interaction.user != self.tester_1 and not (is_owner_guild or is_admin):
-                await interaction.response.send_message("❌ You are not the active tester on this board!", ephemeral=True)
-                return False
-
         if not (has_role or is_owner_role or is_owner_guild or is_admin):
             await interaction.response.send_message(f"❌ Requires `{specific_role_needed}` or `Owner` role.", ephemeral=True)
             return False
         return True
 
-    @discord.ui.button(label="Join as Tester", style=discord.ButtonStyle.blurple, custom_id="join_as_tester_btn")
+    @discord.ui.button(label="Join as Tester", style=discord.ButtonStyle.blurple, custom_id="p_join_btn")
     async def join_tester(self, interaction: discord.Interaction):
-        if self.tester_1 is not None:
+        if active_testers[self.gamemode] is not None:
             await interaction.response.send_message("❌ A tester has already joined this session!", ephemeral=True)
             return
 
-        self.tester_1 = interaction.user
-        new_embed = generate_queue_embed(self.gamemode, tester_1=self.tester_1.mention)
-        
-        # Sblocchiamo i bottoni Next e Leave abilitandoli al clic
-        self.next_player_private.disabled = False
-        self.leave_session.disabled = False
-        
-        # Aggiorna il messaggio originale con i bottoni sbloccati, senza cambiare vista
+        active_testers[self.gamemode] = interaction.user.id
+        new_embed = generate_queue_embed(self.gamemode)
         await interaction.response.edit_message(embed=new_embed, view=self)
 
-    @discord.ui.button(label="Next Player", style=discord.ButtonStyle.green, custom_id="next_player_btn", disabled=True)
+    @discord.ui.button(label="Next Player", style=discord.ButtonStyle.green, custom_id="p_next_btn")
     async def next_player_private(self, interaction: discord.Interaction):
-        if not queues[self.gamemode]:
-            await interaction.response.send_message("❌ The queue is currently empty!", ephemeral=True)
-            return
-
-        current_player_data = queues[self.gamemode].pop(0)
-        guild = interaction.guild
-        player_member = guild.get_member(current_player_data['user_id'])
-
-        if not player_member:
-            await interaction.response.send_message("⚠️ Player left the server. Entry skipped.", ephemeral=True)
-            return
-
-        # Diciamo a Discord di attendere per evitare timeout durante la creazione delle stanze
-        await interaction.response.defer()
-
-        category = discord.utils.get(guild.categories, name="🎯Tierlist")
-        if not category:
-            category = await guild.create_category("🎯Tierlist")
-
-        # Configurazione permessi stanza privata (Tester + Player esaminato)
-        private_overwrites = {
-            guild.default_role: discord.PermissionOverwrite(read_messages=False),
-            interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
-            player_member: discord.PermissionOverwrite(read_messages=True, send_messages=True)
-        }
-
-        room_name = f"🔒-match-{self.gamemode.lower()}-{player_member.name}"
-        match_room = await guild.create_text_channel(name=room_name, category=category, overwrites=private_overwrites)
-
-        wait_channel = guild.get_channel(current_player_data['ticket_channel_id'])
-        if wait_channel:
-            try: await wait_channel.delete()
-            except Exception: pass
-
-        eval_view = QuickEvalView(player_member, current_player_data['mc_name'], self.gamemode, match_room.id)
-        
-        await match_room.send(
-            content=f"⚡ Private Match Room Initialized\nTester: {interaction.user.mention}\nPlayer: {player_member.mention}\n\nThis channel is strictly private between the tester and the player. Discuss your matchmaking procedures here. Once you are finished, the tester must click the button below to compile scores.",
-            view=eval_view
-        )
-        
-        # Aggiorna il tabellone togliendo il player che è appena andato in match
-        refreshed_embed = generate_queue_embed(self.gamemode, tester_1=self.tester_1.mention)
-        await interaction.message.edit(embed=refreshed_embed)
-
-    @discord.ui.button(label="Leave Session", style=discord.ButtonStyle.red, custom_id="leave_session_btn", disabled=True)
-    async def leave_session(self, interaction: discord.Interaction):
-        self.tester_1 = None
-        refreshed_embed = generate_queue_embed(self.gamemode, tester_1="None")
-        
-        # Disabilitiamo nuovamente i bottoni Next e Leave rimettendoli grigi
-        self.next_player_private.disabled = True
-        self.leave_session.disabled = True
-        
-        await interaction.response.edit_message(embed=refreshed_embed, view=self)
-
-class ActiveStaffActionsView(discord.ui.View):
-    def __init__(self, gamemode, current_tester):
-        super().__init__(timeout=None)
-        self.gamemode = gamemode
-        self.current_tester = current_tester
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        # Solo il tester che ha fatto Join (o un Admin/Owner) può premere Next o Leave
         is_owner_guild = interaction.user.id == interaction.guild.owner_id
         is_admin = interaction.user.guild_permissions.administrator
-        
-        if interaction.user != self.current_tester and not (is_owner_guild or is_admin):
-            await interaction.response.send_message("❌ You are not the active tester who joined this board!", ephemeral=True)
-            return False
-        return True
 
-    @discord.ui.button(label="Next Player", style=discord.ButtonStyle.green)
-    async def next_player_private(self, interaction: discord.Interaction):
+        if active_testers[self.gamemode] != interaction.user.id and not (is_owner_guild or is_admin):
+            await interaction.response.send_message("❌ You must click 'Join as Tester' first!", ephemeral=True)
+            return
+
         if not queues[self.gamemode]:
             await interaction.response.send_message("❌ The queue is currently empty!", ephemeral=True)
             return
@@ -263,14 +186,12 @@ class ActiveStaffActionsView(discord.ui.View):
             await interaction.response.send_message("⚠️ Player left the server. Entry skipped.", ephemeral=True)
             return
 
-        # Diciamo a Discord di attendere per evitare timeout durante la creazione delle stanze
         await interaction.response.defer()
 
         category = discord.utils.get(guild.categories, name="🎯Tierlist")
         if not category:
             category = await guild.create_category("🎯Tierlist")
 
-        # Configurazione permessi stanza privata (Tester + Player esaminato)
         private_overwrites = {
             guild.default_role: discord.PermissionOverwrite(read_messages=False),
             interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
@@ -292,16 +213,23 @@ class ActiveStaffActionsView(discord.ui.View):
             view=eval_view
         )
         
-        # Aggiorna il tabellone togliendo il player che è appena andato in match
-        refreshed_embed = generate_queue_embed(self.gamemode, tester_1=self.current_tester.mention)
-        await interaction.message.edit(embed=refreshed_embed)
+        refreshed_embed = generate_queue_embed(self.gamemode)
+        await interaction.message.edit(embed=refreshed_embed, view=self)
 
-    @discord.ui.button(label="Leave Session", style=discord.ButtonStyle.red)
+    @discord.ui.button(label="Leave Session", style=discord.ButtonStyle.red, custom_id="p_leave_btn")
     async def leave_session(self, interaction: discord.Interaction):
-        # Resetta il tabellone allo stato iniziale con "None" come tester e rimette il tasto "Join" originale
-        refreshed_embed = generate_queue_embed(self.gamemode, tester_1="None")
-        await interaction.response.edit_message(embed=refreshed_embed, view=StaffControlView(self.gamemode))
+        is_owner_guild = interaction.user.id == interaction.guild.owner_id
+        is_admin = interaction.user.guild_permissions.administrator
 
+        if active_testers[self.gamemode] != interaction.user.id and not (is_owner_guild or is_admin):
+            await interaction.response.send_message("❌ You are not the active tester.", ephemeral=True)
+            return
+
+        active_testers[self.gamemode] = None
+        refreshed_embed = generate_queue_embed(self.gamemode)
+        await interaction.response.edit_message(embed=refreshed_embed, view=self)
+
+# --- MINECRAFT USERNAME MODAL (TICKET CREATOR) ---
 class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
     mc_name = discord.ui.TextInput(label="Enter your Minecraft Username", placeholder="e.g. Stev3_", required=True)
     
@@ -362,6 +290,7 @@ class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
         await private_wait_room.send(embed=fancy_embed, view=staff_view)
         await interaction.followup.send(f"✅ Success! Your waiting room has been created: {private_wait_room.mention}", ephemeral=True)
 
+# --- DROPDOWN INTERFACE COMPONENTS ---
 class GamemodeSelect(discord.ui.Select):
     def __init__(self):
         options = [discord.SelectOption(label=gm, emoji=GAMEMODE_EMOJIS[gm]) for gm in GAMEMODES]
@@ -379,8 +308,11 @@ class MainTicketView(discord.ui.View):
 async def on_ready():
     print(f"Logged in as {bot.user.name}")
     try:
+        # Registriamo le viste in modo persistente per renderle stabili ai riavvii
+        for gm in GAMEMODES:
+            bot.add_view(StaffControlView(gm))
         await bot.tree.sync()
-        print("Slash commands synced successfully!")
+        print("Slash commands & Persistent Views synced successfully!")
     except Exception as e:
         print(f"Failed to sync slash commands: {e}")
 
