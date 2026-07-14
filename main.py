@@ -280,14 +280,13 @@ class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
         await private_wait_room.send(embed=fancy_embed, view=staff_view)
         await interaction.followup.send(f"✅ Success! Your waiting room has been created: {private_wait_room.mention}", ephemeral=True)
 
-# --- DROPDOWN INTERFACE COMPONENTS ---
 class GamemodeSelect(discord.ui.Select):
     def __init__(self):
         options = [discord.SelectOption(label=gm, emoji=GAMEMODE_EMOJIS[gm]) for gm in GAMEMODES]
         super().__init__(placeholder="Choose a gamemode to test...", options=options)
         
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.send_modal(MinecraftNameModal(self.values))
+        await interaction.response.send_modal(MinecraftNameModal(self.values[0]))
 
 class MainTicketView(discord.ui.View):
     def __init__(self):
