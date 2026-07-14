@@ -44,6 +44,30 @@ def is_user_in_any_queue(user_id):
             return True
     return False
 
+def get_remaining_cooldown(member_id):
+    """Calcola il tempo rimanente del cooldown di 7 giorni."""
+    if member_id in cooldowns:
+        expiration = cooldowns[member_id]
+        now = datetime.utcnow()
+        if now < expiration:
+            delta = expiration - now
+            days = delta.days
+            hours, remainder = divmod(delta.seconds, 3600)
+            minutes, _ = divmod(remainder, 60)
+            
+            parts = []
+            if days > 0:
+                parts.append(f"{days}d")
+            if hours > 0:
+                parts.append(f"{hours}h")
+            if minutes > 0:
+                parts.append(f"{minutes}m")
+                
+            return " ".join(parts) if parts else "qualche secondo"
+        else:
+            del cooldowns[member_id]
+    return None
+
 def generate_queue_embed(gamemode):
     emoji = GAMEMODE_EMOJIS.get(gamemode, "❓")
     embed = discord.Embed(
@@ -90,44 +114,42 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         prev_rank_val = self.prev_rank.value.strip()
         region_val = self.region.value.upper().strip()
         
-        # URL per la Skin 3D del player (MCTiers Style)
-        skin_url = f"https://visage.surreal.ca/full/512/{self.mc_name}.png"
+        # URL Skin 3D stabile del player (Corpo intero di mc-heads.net)
+        skin_url = f"https://mc-heads.net/body/{self.mc_name}/256.png"
         
         # EMBED IDENTICO AL COPIATO DI MCTIERS
         embed = discord.Embed(
-            color=0xdd2e44  # Colore rosso identico alla barra dello screenshot
+            color=0xdd2e44  # Rosso coordinato MCTIERS
         )
-        # Imposta titolo con il nome e avatar rotondo del player a sinistra e la coppa
         embed.set_author(
             name=f"{self.mc_name}'s Test Results 🏆", 
-            icon_url=self.player_member.display_avatar.url
+            icon_url=self.player_member.display_avatar.url if self.player_member.display_avatar else None
         )
         # Visualizza la skin 3D sulla destra
         embed.set_thumbnail(url=skin_url)
         
-        # Campi scritti con lo stesso identico formato (Grassetto l'intestazione, testo sotto, inline=False per averli ordinati a cascata)
+        # Campi identici allo screenshot
         embed.add_field(name="Tester:", value=interaction.user.mention, inline=False)
         embed.add_field(name="Region:", value=region_val, inline=False)
         embed.add_field(name="Username:", value=f"*{self.mc_name}*", inline=False)
         embed.add_field(name="Previous Rank:", value=prev_rank_val, inline=False)
         embed.add_field(name="Rank Earned:", value=rank_earned, inline=False)
         
-        # Filtro canali risultati
-        # Controlla se contiene parole chiave dei Tier alti
+        # Filtro canali risultati (Tier alti in hight-results, gli altri in results)
         high_tier_keywords = ["LT1", "HT1", "LT2", "HT2", "1", "2", "Tier 1", "Tier 2", "Low Tier 1", "High Tier 1", "Low Tier 2", "High Tier 2"]
         is_high = any(keyword.lower() in rank_earned.lower() for keyword in high_tier_keywords)
         channel_name = "🥇│hight-results" if is_high else "🏆│results"
         
         target_channel = discord.utils.get(guild.text_channels, name=channel_name)
         if target_channel:
-            # Mandiamo la menzione del giocatore @Giocatore sopra l'embed, proprio come nello screenshot
+            # Tagga il giocatore fuori dall'embed sopra l'embed, proprio come nello screenshot
             msg = await target_channel.send(content=self.player_member.mention, embed=embed)
             reactions = ["👑", "🥳", "😱", "😭", "😂", "💀"]
             for emo in reactions:
                 try: await msg.add_reaction(emo)
                 except Exception: pass
         
-        # Cooldown di 7 giorni per il player
+        # Imposta il Cooldown di 7 giorni per il giocatore
         cooldowns[self.player_member.id] = datetime.utcnow() + timedelta(days=7)
 
         # Assegnazione automatica del ruolo (es. "Low Tier 5 Sword")
@@ -250,7 +272,7 @@ class StaffControlView(discord.ui.View):
         room_name = f"🔒-match-{self.gamemode.lower()}-{player_member.name}"
         match_room = await guild.create_text_channel(name=room_name, category=category, overwrites=private_overwrites)
 
-        # Invio della risposta EFFIMERA (invisibile al player) per il Tester
+        # Risposta privata (effimera) con il bottone per inserire il Tier (solo il Tester abilitato o l'Owner possono cliccarlo)
         eval_view = TesterPrivateEvalView(player_member, current_player_data['mc_name'], self.gamemode, match_room.id)
         await interaction.response.send_message(
             content=f"⚡ **Match Room Created:** {match_room.mention}\nThe chat inside is completely clean. Use the button below whenever you are ready to input the Tier and close the match.",
@@ -295,13 +317,11 @@ class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
             await interaction.response.send_message("❌ You are already queued up for another test!", ephemeral=True)
             return
             
-        if user_id in cooldowns and not (is_owner or is_admin):
-            remaining = cooldowns[user_id] - datetime.utcnow()
-            if remaining.total_seconds() > 0:
-                hours, remainder = divmod(int(remaining.total_seconds()), 3600)
-                days, hours = divmod(hours, 24)
-                await interaction.response.send_message(f"❌ Cooldown active! Remaining: {days}d {hours}h.", ephemeral=True)
-                return
+        # CONTROLLO COOLDOWN DEI 7 GIORNI ALL'ISCRIZIONE (con calcolo ore/giorni rimasti)
+        remaining = get_remaining_cooldown(user_id)
+        if remaining is not None and not (is_owner or is_admin):
+            await interaction.response.send_message(f"❌ Cooldown active! Remaining: {remaining}.", ephemeral=True)
+            return
                 
         await interaction.response.defer(ephemeral=True)
         
