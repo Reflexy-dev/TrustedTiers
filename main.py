@@ -5,8 +5,6 @@ import os
 from flask import Flask
 from threading import Thread
 from datetime import datetime, timedelta
-import urllib.request
-import json
 
 app = Flask('')
 
@@ -115,41 +113,24 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         prev_rank_val = self.prev_rank.value.strip()
         region_val = self.region.value.upper().strip()
         
-        # RISOLUZIONE REALE: Chiamata a Mojang per convertire il Nome in UUID reale
-        mc_uuid = None
-        corrected_name = self.mc_name
-        try:
-            url = f"https://api.mojang.com/users/profiles/minecraft/{self.mc_name}"
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=5) as response:
-                if response.status == 200:
-                    data = json.loads(response.read().decode())
-                    mc_uuid = data.get("id")
-                    corrected_name = data.get("name", self.mc_name) # corregge le maiuscole/minuscole
-        except Exception:
-            pass # Se le API Mojang falliscono, userà il fallback basato sul nome
-
-        # Impostazione dell'URL per il rendering 3D (Visage con busto diagonale tramite UUID)
-        if mc_uuid:
-            skin_url = f"https://visage.surreal.co/bust/256/{mc_uuid}.png"
-        else:
-            # Fallback su mc-heads se non riusciamo a prendere l'UUID
-            skin_url = f"https://mc-heads.net/body/{corrected_name}/256.png"
+        # RENDERING REALE 3D IN DIAGONALE ISOMETRICA DI MC-HEADS (ENDPOINT /player/)
+        # Questo mostra la skin intera girata di 3/4 esattamente in stile Minecraft
+        skin_url = f"https://mc-heads.net/player/{self.mc_name}/256.png"
         
         # Embed stile MCTIERS con colore rosso perfetto (#dd2e44)
         embed = discord.Embed(
             color=0xdd2e44
         )
         embed.set_author(
-            name=f"{corrected_name}'s Test Results 🏆", 
+            name=f"{self.mc_name}'s Test Results 🏆", 
             icon_url=self.player_member.display_avatar.url if self.player_member.display_avatar else None
         )
-        # Mostra il busto 3D inclinato sulla destra
+        # Mostra la skin 3D sulla destra come nello screenshot originale
         embed.set_thumbnail(url=skin_url)
         
         embed.add_field(name="Tester:", value=interaction.user.mention, inline=False)
         embed.add_field(name="Region:", value=region_val, inline=False)
-        embed.add_field(name="Username:", value=f"{corrected_name}", inline=False)
+        embed.add_field(name="Username:", value=f"{self.mc_name}", inline=False)
         embed.add_field(name="Previous Rank:", value=prev_rank_val, inline=False)
         embed.add_field(name="Rank Earned:", value=rank_earned, inline=False)
         
