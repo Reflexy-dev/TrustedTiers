@@ -346,28 +346,20 @@ class GamemodeSelect(discord.ui.Select):
         super().__init__(placeholder="Choose a gamemode to test...", options=options)
         
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.send_modal(MinecraftNameModal(self.values))
+        # CORRETTO: Prendiamo il valore singolo della lista con, altrimenti il bot crasha!
+        await interaction.response.send_modal(MinecraftNameModal(self.values[0]))
 
 class MainTicketView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
         self.add_item(GamemodeSelect())
 
-@bot.event
-async def on_ready():
-    print(f"Logged in as {bot.user.name}")
-    try:
-        await bot.tree.sync()
-        print("Slash commands synced successfully!")
-    except Exception as e:
-        print(f"Failed to sync slash commands: {e}")
-
 @bot.tree.command(name="setup_queue", description="Generate the main queue request embed panel")
 @app_commands.default_permissions(administrator=True)
 async def setup_queue(interaction: discord.Interaction):
     embed = discord.Embed(
         title="⚔️ Request a Tierlist Test",
-        description="Select the gamemode you want to be tested in from the dropdown menu below to join the global board.\n\n⚠️ Remember: Never share your Minecraft account credentials or password here.",
+        description="Select the gamemode you want to be tested in from the dropdown menu below to join the global board.\n\n⚠️ **Remember:** Never share your Minecraft account credentials or password here.",
         color=discord.Color.blue()
     )
     await interaction.response.send_message(embed=embed, view=MainTicketView())
