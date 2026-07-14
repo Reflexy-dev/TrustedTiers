@@ -5,6 +5,8 @@ import os
 from flask import Flask
 from threading import Thread
 from datetime import datetime, timedelta
+import urllib.request
+import json
 
 app = Flask('')
 
@@ -113,24 +115,41 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         prev_rank_val = self.prev_rank.value.strip()
         region_val = self.region.value.upper().strip()
         
-        # RENDERING REALE 3D IN DIAGONALE ISOMETRICA DI MC-HEADS (ENDPOINT /player/)
-        # Questo mostra la skin intera girata di 3/4 esattamente in stile Minecraft
-        skin_url = f"https://mc-heads.net/player/{self.mc_name}/256.png"
+        # RISOLUZIONE DEL PROBLEMA DELLA SKIN: Otteniamo l'UUID Mojang reale per sbloccare la posa 3D esatta
+        mc_uuid = None
+        corrected_name = self.mc_name
+        try:
+            url = f"https://api.mojang.com/users/profiles/minecraft/{self.mc_name}"
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=5) as response:
+                if response.status == 200:
+                    data = json.loads(response.read().decode())
+                    mc_uuid = data.get("id")
+                    corrected_name = data.get("name", self.mc_name)
+        except Exception:
+            pass 
+
+        # URL Visage Bust definitivo: genera il mezzo busto 3D con le braccia staccate/aperte di lato identico a MCTiers
+        if mc_uuid:
+            skin_url = f"https://visage.surreal.co/bust/256/{mc_uuid}.png"
+        else:
+            # Fallback sicuro con il nickname se Mojang è offline
+            skin_url = f"https://mc-heads.net/body/{corrected_name}/256.png"
         
         # Embed stile MCTIERS con colore rosso perfetto (#dd2e44)
         embed = discord.Embed(
             color=0xdd2e44
         )
         embed.set_author(
-            name=f"{self.mc_name}'s Test Results 🏆", 
+            name=f"{corrected_name}'s Test Results 🏆", 
             icon_url=self.player_member.display_avatar.url if self.player_member.display_avatar else None
         )
-        # Mostra la skin 3D sulla destra come nello screenshot originale
+        # Mostra la skin con la posa isometrica corretta a destra
         embed.set_thumbnail(url=skin_url)
         
         embed.add_field(name="Tester:", value=interaction.user.mention, inline=False)
         embed.add_field(name="Region:", value=region_val, inline=False)
-        embed.add_field(name="Username:", value=f"{self.mc_name}", inline=False)
+        embed.add_field(name="Username:", value=f"{corrected_name}", inline=False)
         embed.add_field(name="Previous Rank:", value=prev_rank_val, inline=False)
         embed.add_field(name="Rank Earned:", value=rank_earned, inline=False)
         
@@ -140,7 +159,7 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         
         target_channel = discord.utils.get(guild.text_channels, name=channel_name)
         if target_channel:
-            # Tagga il player SOPRA l'embed proprio come fa l'originale dello screenshot
+            # Tagga il player sopra l'embed come da screenshot
             msg = await target_channel.send(content=self.player_member.mention, embed=embed)
             reactions = ["👑", "🥳", "😱", "😭", "😂", "💀"]
             for emo in reactions:
