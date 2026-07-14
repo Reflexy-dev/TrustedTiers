@@ -113,8 +113,9 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         prev_rank_val = self.prev_rank.value.strip()
         region_val = self.region.value.upper().strip()
         
-        # API BUST: Genera il busto 3D tagliato identico a quello originale di MCTIERS (Skin Nera)
-        skin_url = f"https://visage.surreal.ca/bust/256/{self.mc_name}.png"
+        # API CRAVATAR BUST RENDERING DIAGONALE STABILE
+        # Crea l'effetto busto/testa ravvicinata in 3D diagonale identica allo screenshot originale
+        skin_url = f"https://cravatar.eu/helm/avatar/{self.mc_name}/256.png"
         
         # Embed stile MCTIERS con colore rosso perfetto
         embed = discord.Embed(
@@ -124,7 +125,7 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
             name=f"{self.mc_name}'s Test Results 🏆", 
             icon_url=self.player_member.display_avatar.url if self.player_member.display_avatar else None
         )
-        # Mostra il busto 3D sulla destra
+        # Mostra l'avatar 3D sulla destra
         embed.set_thumbnail(url=skin_url)
         
         embed.add_field(name="Tester:", value=interaction.user.mention, inline=False)
