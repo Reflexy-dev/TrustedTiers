@@ -5,47 +5,124 @@ import os
 from flask import Flask
 from threading import Thread
 import asyncio
+from datetime import datetime, timedelta
 
-# --- CONFIGURAZIONE FLASK PER KEEP-ALIVE (Render + UptimeRobot) ---
+# --- CONFIGURAZIONE FLASK ---
 app = Flask('')
-
 @app.route('/')
-def home():
-    return "Bot is online!"
-
-def run():
-    # Render assegna una porta dinamica tramite variabile d'ambiente, altrimenti usa 8080
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host='0.0.0.0', port=port)
-
-def keep_alive():
-    t = Thread(target=run)
-    t.start()
+def home(): return "Bot is online!"
+def run(): app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080)))
+def keep_alive(): Thread(target=run).start()
 
 # --- CONFIGURAZIONE DISCORD BOT ---
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
-
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Dizionario delle Gamemode associate alle rispettive Emoji
 GAMEMODE_EMOJIS = {
-    "Sword": "⚔️",
-    "Axe": "🪓",
-    "UHC": "🍎",
-    "DiaPot": "💎",
-    "NethPot": "🔥",
-    "DiaSMP": "🛡️",
-    "SMP": "🏡",
-    "SpearMace": "🔱",
-    "Mace": "🔨",
-    "Cart": "🛒",
-    "Crystal": "🔮"
+    "Sword": "⚔️", "Axe": "🪓", "UHC": "🍎", "DiaPot": "💎", "NethPot": "🔥",
+    "DiaSMP": "🛡️", "SMP": "🏡", "SpearMace": "🔱", "Mace": "🔨", "Cart": "🛒", "Crystal": "🔮"
 }
-
 GAMEMODES = list(GAMEMODE_EMOJIS.keys())
-queues = {gm: [] for gm in GAMEMODES}
+
+# Strutture dati per gestire le nuove logiche
+queues = {gm: [] for gm in GAMEMODES}  # Coda di dizionari per modalità
+cooldowns = {}                         # user_id: datetime di sblocco
+
+# Controllo se l'utente è già in una coda qualsiasi
+def is_user_in_any_queue(user_id):
+    for gm in GAMEMODES:
+        if any(p['user_id'] == user_id for p in queues[gm]):
+            return True
+    return False
+
+# Funzione ausiliaria per generare il grafico testuale della coda
+def generate_queue_chart(gamemode, tester_mention="Nessun Tester"):
+    emoji = GAMEMODE_EMOJIS.get(gamemode, "❓")
+    chart = f"📊 **TABELLONE CODA {gamemode.upper()}** {emoji}\n"
+    chart += f"└─ 🧑‍🏫 **Tester Attivo:** {tester_mention}\n"
+    chart += "-----------------------------------------\n"
+    
+    if not queues[gamemode]:
+        chart += "🟩 *La coda è attualmente vuota! No player in attesa.*\n"
+    else:
+        for idx, player in enumerate(queues[gamemode], start=1):
+            chart += f"**[{idx}]** 👤 Player: <@{player['user_id']}> | 🎮 MC: `{player['mc_name']}`\n"
+            
+    chart += "-----------------------------------------\n"
+    chart += "*Usa `/next` per far avanzare la coda di una casella.*"
+    return chart
+
+# Finestra per inserire i dati del test (Il nome viene inserito in automatico)
+class FastResultModal(discord.ui.Modal, title="Inserimento Rapido Risultati"):
+    def __init__(self, player_member, mc_name, gamemode):
+        super().__init__()
+        self.player_member = player_member
+        self.mc_name = mc_name
+        self.gamemode = gamemode
+        
+        # Campi precompilati nel titolo o mostrati come etichette fisse
+        self.score = discord.ui.TextInput(label=f"Punteggio per {mc_name}", placeholder="es. 3-0, 2-1", required=True)
+        self.prev_rank = discord.ui.TextInput(label="Tier Precedente", placeholder="es. Unranked, LT5", default="Unranked", required=True)
+        self.new_rank = discord.ui.TextInput(label="Nuovo Tier Guadagnato", placeholder="es. LT4, HT2, LT1", required=True)
+        
+        self.add_item(self.score)
+        self.add_item(self.prev_rank)
+        self.add_item(self.new_rank)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        
+        rank_earned = self.new_rank.value.upper().strip()
+        score_val = self.score.value
+        prev_rank_val = self.prev_rank.value
+        emoji = GAMEMODE_EMOJIS.get(self.gamemode, "🏆")
+        
+        # Calcolo URL Skin del giocatore
+        skin_url = f"https://crafatar.com{self.mc_name}?overlay"
+        
+        # Creazione dell'Embed delle Tier List reali
+        embed = discord.Embed(color=0x2f3136)
+        embed.set_author(name=f"Risultati Test di {interaction.user.display_name}", icon_url=interaction.user.display_avatar.url)
+        embed.add_field(name="Tester:", value=interaction.user.mention, inline=False)
+        embed.add_field(name="Gamemode:", value=f"{emoji} `{self.gamemode}` (Punteggio: {score_val})", inline=False)
+        embed.add_field(name="Username MC:", value=f"*{self.mc_name}* ({self.player_member.mention})", inline=False)
+        embed.add_field(name="Tier Precedente:", value=prev_rank_val, inline=True)
+        embed.add_field(name="Nuovo Tier Guadagnato:", value=f"**{rank_earned}**", inline=True)
+        embed.set_thumbnail(url=skin_url)
+        
+        # Decisione del canale di destinazione in base alla fascia del Rank
+        high_ranks = ["LT2", "HT2", "LT1", "HT1"]
+        channel_name = "high-results" if any(hr in rank_earned for hr in high_ranks) else "results"
+        
+        target_channel = discord.utils.get(interaction.guild.text_channels, name=channel_name)
+        
+        if target_channel:
+            msg = await target_channel.send(embed=embed)
+            reactions = ["👑", "🥳", "😱", "😭", "😂", "💀"]
+            for emo in reactions: await msg.add_reaction(emo)
+            await interaction.followup.send(f"✅ Risultati inviati con successo in {target_channel.mention}!")
+        else:
+            # Se il canale non esiste, lo manda dove si trova il tester per sicurezza
+            msg = await interaction.followup.send(content=f"⚠️ Canale `#{channel_name}` non trovato. Ecco l'embed:", embed=embed)
+            reactions = ["👑", "🥳", "😱", "😭", "😂", "💀"]
+            for emo in reactions: await msg.add_reaction(emo)
+
+        # Attivazione del Cooldown di 7 giorni per il player testato
+        cooldowns[self.player_member.id] = datetime.utcnow() + timedelta(days=7)
+
+        # Assegnazione del ruolo automatica
+        role_name = f"{rank_earned} {self.gamemode}"
+        guild = interaction.guild
+        role = discord.utils.get(guild.roles, name=role_name)
+        if not role:
+            try:
+                role = await guild.create_role(name=role_name, mentionable=True, color=discord.Color.light_gray())
+            except Exception: pass
+        if role:
+            try: await self.player_member.add_roles(role)
+            except Exception: pass
 
 class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
     mc_name = discord.ui.TextInput(label="Enter your Minecraft Username", placeholder="e.g. Stev3_", required=True)
@@ -55,51 +132,53 @@ class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
         self.gamemode = gamemode
 
     async def on_submit(self, interaction: discord.Interaction):
+        user_id = interaction.user.id
+        
+        # 1. BLOCCO MULTI-CODA: Controlla se è già iscritto a un altro test
+        if is_user_in_any_queue(user_id):
+            await interaction.response.send_message("❌ Sei già in coda per una modalità! Non puoi iscriverti a più test contemporaneamente.", ephemeral=True)
+            return
+            
+        # 2. BLOCCO COOLDOWN 7 GIORNI: Controlla se ha fatto un test di recente
+        if user_id in cooldowns:
+            remaining = cooldowns[user_id] - datetime.utcnow()
+            if remaining.total_seconds() > 0:
+                giorni = remaining.days
+                await interaction.response.send_message(f"❌ Sei in cooldown! Potrai richiedere un nuovo test tra **{giorni} giorni**.", ephemeral=True)
+                return
+        
         await interaction.response.defer(ephemeral=True)
         guild = interaction.guild
         
+        # Creazione canale provvisorio di attesa (verrà eliminato automaticamente al via)
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(read_messages=False),
             interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=False),
         }
-        
         tester_role = discord.utils.get(guild.roles, name="Tester")
-        if tester_role:
-            overwrites[tester_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+        if tester_role: overwrites[tester_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
 
         channel_name = f"⏳-wait-{self.gamemode.lower()}-{interaction.user.name}"
         ticket_channel = await guild.create_text_channel(name=channel_name, overwrites=overwrites)
         
         player_data = {
-            'user_id': interaction.user.id,
+            'user_id': user_id,
             'mc_name': self.mc_name.value,
             'ticket_channel_id': ticket_channel.id
         }
-        queues[self.gamemode].append(player_data)
-        pos = len(queues[self.gamemode])
-
-        emoji = GAMEMODE_EMOJIS.get(self.gamemode, "❓")
-        embed = discord.Embed(
-            title=f"{emoji} Queue for {self.gamemode}",
-            description=f"Hello {interaction.user.mention}, you have been added to the queue.\n\n"
-                        f"**Minecraft Username:** `{self.mc_name.value}`\n"
-                        f"**Your Position:** #{pos}\n\n"
-                        f"Please wait until a **Tester** starts your session. Your chat access is currently locked.",
-            color=discord.Color.orange()
-        )
         
-        view = TesterControlView(self.gamemode, player_data)
-        await ticket_channel.send(embed=embed, view=view)
-        await interaction.followup.send(f"Ticket created! Check {ticket_channel.mention}", ephemeral=True)
+        # Inserimento nella casella corretta della coda
+        queues[self.gamemode].append(player_data)
+        
+        # Genera il tabellone aggiornato nel canale del ticket
+        chart_view = generate_queue_chart(self.gamemode)
+        await ticket_channel.send(chart_view)
+        await interaction.followup.send(f"Iscrizione completata! Controlla il canale dedicato: {ticket_channel.mention}", ephemeral=True)
 
 class GamemodeSelect(discord.ui.Select):
     def __init__(self):
-        options = [
-            discord.SelectOption(label=gm, emoji=GAMEMODE_EMOJIS[gm], description=f"Queue for {gm} test") 
-            for gm in GAMEMODES
-        ]
-        super().__init__(placeholder="Choose a Gamemode to test...", min_values=1, max_values=1, options=options)
-
+        options = [discord.SelectOption(label=gm, emoji=GAMEMODE_EMOJIS[gm]) for gm in GAMEMODES]
+        super().__init__(placeholder="Scegli la modalità da testare...", options=options)
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.send_modal(MinecraftNameModal(self.values[0]))
 
@@ -108,157 +187,83 @@ class MainTicketView(discord.ui.View):
         super().__init__(timeout=None)
         self.add_item(GamemodeSelect())
 
-class TesterControlView(discord.ui.View):
-    def __init__(self, gamemode, player_data):
-        super().__init__(timeout=None)
-        self.gamemode = gamemode
-        self.player_data = player_data
-
-    @discord.ui.button(label="Start Test", style=discord.ButtonStyle.green)
-    async def start_test(self, interaction: discord.Interaction):
-        # 1. RISOLTO ERRORE INTERAZIONE: Diciamo subito a Discord di attendere l'elaborazione
-        await interaction.response.defer()
-
-        # 2. RISOLTO CONTROLLO RUOLI: Verifica se l'utente è Owner, Amministratore o ha i ruoli specificati
-        is_owner_guild = interaction.user.id == interaction.guild.owner_id
-        is_admin = interaction.user.guild_permissions.administrator
-        is_tester = any(role.name == "Tester" for role in interaction.user.roles)
-        is_owner_role = any(role.name == "Owner" for role in interaction.user.roles)
-
-        if not (is_owner_guild or is_admin or is_tester or is_owner_role):
-            await interaction.followup.send("❌ Solo i Tester o gli Owner scritti nei ruoli possono avviare questo test!", ephemeral=True)
-            return
-
-        channel = interaction.channel
-        guild = interaction.guild
-        player = guild.get_member(self.player_data['user_id'])
-        
-        if player:
-            await channel.set_permissions(player, read_messages=True, send_messages=True)
-            emoji = GAMEMODE_EMOJIS.get(self.gamemode, "")
-            await channel.edit(name=f"🟢-test-{self.gamemode.lower()}-{player.name}")
-            
-            if self.player_data in queues[self.gamemode]:
-                queues[self.gamemode].remove(self.player_data)
-                
-            await interaction.followup.send(
-                f"🟢 Test iniziato! {player.mention} adesso puoi scrivere in chat.\n"
-                f"Modalità: **Test {emoji} {self.gamemode}**\n"
-                f"Usa `/result` per pubblicare il punteggio finale e `/next_tier` quando hai finito per chiudere il ticket."
-            )
-        else:
-            await interaction.followup.send("Il giocatore ha abbandonato il server Discord.", ephemeral=True)
-
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user.name}")
-    try:
-        synced = await bot.tree.sync()
-        print(f"Synced {len(synced)} slash commands.")
-    except Exception as e:
-        print(e)
+    print(f"Bot pronto come {bot.user.name}")
+    try: await bot.tree.sync()
+    except Exception as e: print(e)
 
 @bot.command()
 @commands.is_owner()
 async def setup_queue(ctx):
-    embed = discord.Embed(
-        title="⚔️ Request a Tierlist Test",
-        description="Select the gamemode you want to be tested in from the dropdown menu below.",
-        color=discord.Color.blue()
-    )
+    embed = discord.Embed(title="⚔️ Sistema Richiesta Tierlist", description="Seleziona la modalità dal menu a tendina per inserirti nel grafico della coda.", color=discord.Color.blue())
     await ctx.send(embed=embed, view=MainTicketView())
 
-@bot.tree.command(name="result", description="Submit a tierlist test result")
-@app_commands.describe(
-    player="The Discord user tested",
-    minecraft_name="Their Minecraft username",
-    gamemode="The gamemode tested",
-    result_score="The score (e.g. 2-1, 3-0)",
-    previous_rank="Their old tier (or Unranked)",
-    rank_earned="The new tier earned (e.g. LT4, HT2, LT1)"
-)
-async def result(
-    interaction: discord.Interaction, 
-    player: discord.Member, 
-    minecraft_name: str,
-    gamemode: str,
-    result_score: str,
-    previous_rank: str,
-    rank_earned: str
-):
-    # Controllo permessi anche per il comando dei risultati
+# --- NUOVO COMANDO INTERATTIVO /NEXT PER SCALARE LE CASELLE ---
+@bot.tree.command(name="next", description="Avanza la coda di una casella e compila il verdetto per il primo player")
+@app_commands.describe(gamemode="La modalità di cui vuoi scalare la coda")
+@app_commands.choices(gamemode=[
+    app_commands.Choice(name="⚔️ Sword", value="Sword"),
+    app_commands.Choice(name="🪓 Axe", value="Axe"),
+    app_commands.Choice(name="🍎 UHC", value="UHC"),
+    app_commands.Choice(name="💎 DiaPot", value="DiaPot"),
+    app_commands.Choice(name="🔥 NethPot", value="NethPot"),
+    app_commands.Choice(name="🛡️ DiaSMP", value="DiaSMP"),
+    app_commands.Choice(name="🏡 SMP", value="SMP"),
+    app_commands.Choice(name="🔱 SpearMace", value="SpearMace"),
+    app_commands.Choice(name="🔨 Mace", value="Mace"),
+    app_commands.Choice(name="🛒 Cart", value="Cart"),
+    app_commands.Choice(name="🔮 Crystal", value="Crystal")
+])
+async def next_player(interaction: discord.Interaction, gamemode: app_commands.Choice[str]):
+    # Estraiamo il valore stringa reale dalla scelta effettuata dall'utente
+    gamemode_str = gamemode.value
+
+    # Controllo permessi di chi esegue il comando
     is_tester = any(role.name == "Tester" for role in interaction.user.roles)
-    is_owner_role = any(role.name == "Owner" for role in interaction.user.roles)
+    is_owner = any(role.name == "Owner" for role in interaction.user.roles)
     is_admin = interaction.user.guild_permissions.administrator
 
-    if not (is_tester or is_owner_role or is_admin):
-        await interaction.response.send_message("❌ Devi avere il ruolo Tester o Owner per usare questo comando.", ephemeral=True)
+    if not (is_tester or is_owner or is_admin):
+        await interaction.response.send_message("❌ Solo Tester o Owner possono far scorrere il tabellone dei test.", ephemeral=True)
         return
 
-    await interaction.response.defer()
+    if gamemode_str not in queues or not queues[gamemode_str]:
+        await interaction.response.send_message(f"❌ La coda per la modalità `{gamemode_str}` è attualmente vuota!", ephemeral=True)
+        return
 
-    # 3. RISOLTO SKIN URL: Corretto l'indirizzo dell'API di Crafatar per mostrare il render 3D completo
-    skin_url = f"https://crafatar.com{minecraft_name}?overlay"
-
-    emoji = GAMEMODE_EMOJIS.get(gamemode, "🏆")
-    embed = discord.Embed(color=0x2f3136)
-    embed.set_author(name=f"Risultati Test di {interaction.user.display_name}", icon_url=interaction.user.display_avatar.url)
+    # Estrae il primo giocatore della lista (Casella #1) e lo rimuove dalla coda
+    current_player_data = queues[gamemode_str].pop(0)
     
-    embed.add_field(name="Tester:", value=interaction.user.mention, inline=False)
-    embed.add_field(name="Gamemode:", value=f"{emoji} `{gamemode}` (Punteggio: {result_score})", inline=False)
-    embed.add_field(name="Username MC:", value=f"*{minecraft_name}* ({player.mention})", inline=False)
-    embed.add_field(name="Tier Precedente:", value=previous_rank, inline=True)
-    embed.add_field(name="Nuovo Tier Guadagnato:", value=f"**{rank_earned}**", inline=True)
-    
-    # Imposta l'immagine della skin sul lato destro dell'embed
-    embed.set_thumbnail(url=skin_url)
-
-    msg = await interaction.followup.send(embed=embed)
-    
-    reactions = ["👑", "🥳", "😱", "😭", "😂", "💀"]
-    for emo in reactions:
-        await msg.add_reaction(emo)
-
-    # --- ASSEGNAZIONE RUOLO DISCORD AUTOMATICA ---
-    role_name = f"{rank_earned} {gamemode}"
     guild = interaction.guild
-    role = discord.utils.get(guild.roles, name=role_name)
+    player_member = guild.get_member(current_player_data['user_id'])
+    ticket_chan_id = current_player_data['ticket_channel_id']
     
-    if not role:
+    # Elimina subito il canale di attesa del player per non accumulare stanze inutili
+    wait_channel = guild.get_channel(ticket_chan_id)
+    if wait_channel:
         try:
-            role = await guild.create_role(name=role_name, mentionable=True, color=discord.Color.light_gray())
-            await interaction.channel.send(f"⚠️ Il ruolo `{role_name}` non esisteva. L'ho creato automaticamente.")
-        except Exception as e:
-            await interaction.channel.send(f"❌ Impossibile creare il ruolo `{role_name}`: {e}")
+            await wait_channel.delete()
+        except Exception:
+            pass
 
-    if role:
-        try:
-            await player.add_roles(role)
-            await interaction.channel.send(f"✅ Ruolo {role.mention} assegnato automaticamente a {player.mention}!")
-        except Exception as e:
-            await interaction.channel.send(f"❌ Impossibile assegnare il ruolo. Verifica che il ruolo del bot sia posizionato PIÙ IN ALTO rispetto a `{role_name}` nella lista dei ruoli del server. Errore: {e}")
-
-@bot.tree.command(name="next_tier", description="Completely finish the current session and close this ticket")
-async def next_tier(interaction: discord.Interaction):
-    is_tester = any(role.name == "Tester" for role in interaction.user.roles)
-    is_owner_role = any(role.name == "Owner" for role in interaction.user.roles)
-    is_admin = interaction.user.guild_permissions.administrator
-
-    if not (is_tester or is_owner_role or is_admin):
-        await interaction.response.send_message("❌ Devi avere il ruolo Tester o Owner per usare questo comando.", ephemeral=True)
+    if not player_member:
+        await interaction.response.send_message("⚠️ Il primo giocatore in coda sembra aver abbandonato il server. Coda aggiornata!", ephemeral=True)
         return
 
-    channel = interaction.channel
-    if "🟢-test-" in channel.name or "⏳-wait-" in channel.name:
-        await interaction.response.send_message("Chiusura della sessione e rimozione del canale in corso (5 secondi)...")
-        await asyncio.sleep(5)
-        await channel.delete()
-    else:
-        await interaction.response.send_message("❌ Questo comando può essere usato solo all'interno di un canale ticket di test!", ephemeral=True)
+    # RISOLTO: Apre istantaneamente la scheda di compilazione con i dati precompilati in memoria!
+    await interaction.response.send_modal(FastResultModal(
+        player_member=player_member,
+        mc_name=current_player_data['mc_name'],
+        gamemode=gamemode_str
+    ))
+
+    # Invia un riepilogo visivo nel canale corrente per mostrare la coda aggiornata (le caselle si sono spostate)
+    new_chart = generate_queue_chart(gamemode_str, tester_mention=interaction.user.mention)
+    await interaction.channel.send(content=f"🔄 La coda `{gamemode_str}` è avanzata! Ecco la nuova situazione:\n{new_chart}")
 
 # Avvio del server Flask per mantenere in vita il processo
 keep_alive()
 
 # Caricamento del Token dalle variabili d'ambiente di Render ed esecuzione del bot
-TOKEN = os.environ.get("DISCORD_TOKEN")
-bot.run(TOKEN)
+bot.run(os.environ.get("DISCORD_TOKEN"))
