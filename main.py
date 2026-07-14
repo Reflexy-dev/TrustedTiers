@@ -87,7 +87,7 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         prev_rank_val = self.prev_rank.value
         emoji = GAMEMODE_EMOJIS.get(self.gamemode, "🏆")
         
-        skin_url = f"https://crafatar.com{self.mc_name}?overlay"
+        skin_url = f"https://crafatar.com/avatars/{self.mc_name}?overlay"
         
         embed = discord.Embed(color=0x2f3136)
         embed.set_author(name=f"{interaction.user.display_name}'s Test Results", icon_url=interaction.user.display_avatar.url)
@@ -137,11 +137,16 @@ class QuickEvalView(discord.ui.View):
     async def open_modal_inside(self, btn_interaction: discord.Interaction):
         await btn_interaction.response.send_modal(FastResultModal(self.p_mem, self.mc_n, self.gm, self.r_id))
 
-# --- PERSISTENT STAFF CONTROL VIEW (ANTIBUG AD ACCESSO FISSO) ---
+# --- PERSISTENT STAFF CONTROL VIEW (CORRETTA CON ID UNICI) ---
 class StaffControlView(discord.ui.View):
     def __init__(self, gamemode):
         super().__init__(timeout=None)
         self.gamemode = gamemode
+        
+        # Assegniamo custom_id univoci per ogni gamemode per evitare conflitti nella registrazione persistente
+        self.join_tester.custom_id = f"p_join_btn_{gamemode.lower()}"
+        self.next_player_private.custom_id = f"p_next_btn_{gamemode.lower()}"
+        self.leave_session.custom_id = f"p_leave_btn_{gamemode.lower()}"
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         is_owner_guild = interaction.user.id == interaction.guild.owner_id
@@ -155,7 +160,7 @@ class StaffControlView(discord.ui.View):
             return False
         return True
 
-    @discord.ui.button(label="Join as Tester", style=discord.ButtonStyle.blurple, custom_id="p_join_btn")
+    @discord.ui.button(label="Join as Tester", style=discord.ButtonStyle.blurple)
     async def join_tester(self, interaction: discord.Interaction):
         if active_testers[self.gamemode] is not None:
             await interaction.response.send_message("❌ A tester has already joined this session!", ephemeral=True)
@@ -165,7 +170,7 @@ class StaffControlView(discord.ui.View):
         new_embed = generate_queue_embed(self.gamemode)
         await interaction.response.edit_message(embed=new_embed, view=self)
 
-    @discord.ui.button(label="Next Player", style=discord.ButtonStyle.green, custom_id="p_next_btn")
+    @discord.ui.button(label="Next Player", style=discord.ButtonStyle.green)
     async def next_player_private(self, interaction: discord.Interaction):
         is_owner_guild = interaction.user.id == interaction.guild.owner_id
         is_admin = interaction.user.guild_permissions.administrator
@@ -216,7 +221,7 @@ class StaffControlView(discord.ui.View):
         refreshed_embed = generate_queue_embed(self.gamemode)
         await interaction.message.edit(embed=refreshed_embed, view=self)
 
-    @discord.ui.button(label="Leave Session", style=discord.ButtonStyle.red, custom_id="p_leave_btn")
+    @discord.ui.button(label="Leave Session", style=discord.ButtonStyle.red)
     async def leave_session(self, interaction: discord.Interaction):
         is_owner_guild = interaction.user.id == interaction.guild.owner_id
         is_admin = interaction.user.guild_permissions.administrator
