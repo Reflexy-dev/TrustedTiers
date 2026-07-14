@@ -37,7 +37,6 @@ GAMEMODES = list(GAMEMODE_EMOJIS.keys())
 queues = {gm: [] for gm in GAMEMODES}
 cooldowns = {}
 active_testers = {gm: None for gm in GAMEMODES}
-# Struttura per associare temporaneamente i canali di match ai rispettivi player e modalità
 active_matches = {} 
 
 def is_user_in_any_queue(user_id):
@@ -115,7 +114,7 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
                 try: await msg.add_reaction(emo)
                 except Exception: pass
         
-        # Imposta cooldown di 7 giorni per il player
+        # Imposta cooldown di 7 giorni per il player (Gli Owner bypassano questo cooldown come impostato precedentemente)
         cooldowns[self.player_member.id] = datetime.utcnow() + timedelta(days=7)
 
         # Assegnazione automatica del ruolo (es. "LT2 Sword")
@@ -195,18 +194,18 @@ class StaffControlView(discord.ui.View):
 
         await interaction.response.defer()
 
-        # NASCONDI IL CANALE DELLA WAITLIST AL PLAYER (Non lo vedrà più)
+        # NASCONDI IL CANALE DELLA WAITLIST AL PLAYER
         try:
             await interaction.channel.set_permissions(player_member, overwrite=None)
         except Exception:
             pass
 
-        # CREAZIONE CATEGORIA SE NON ESISTE
+        # CREAZIONE CATEGORIA
         category = discord.utils.get(guild.categories, name="🎯Tierlist")
         if not category:
             category = await guild.create_category("🎯Tierlist")
 
-        # Configurazione permessi del canale privato del test (Solo tester e player)
+        # Configurazione permessi del canale privato del test
         private_overwrites = {
             guild.default_role: discord.PermissionOverwrite(read_messages=False),
             interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
@@ -214,18 +213,14 @@ class StaffControlView(discord.ui.View):
         }
 
         room_name = f"🔒-match-{self.gamemode.lower()}-{player_member.name}"
-        
-        # IL CANALE VIENE CREATO COMPLETAMENTE VUOTO SENZA MESSAGGI DI BENVENUTO
         match_room = await guild.create_text_channel(name=room_name, category=category, overwrites=private_overwrites)
 
-        # Traccia i dettagli del canale per il comando di valutazione /evaluate
         active_matches[match_room.id] = {
             "player_member": player_member,
             "mc_name": current_player_data['mc_name'],
             "gamemode": self.gamemode
         }
         
-        # Aggiorna il tabellone principale
         refreshed_embed = generate_queue_embed(self.gamemode)
         await interaction.message.edit(embed=refreshed_embed, view=self)
 
@@ -281,7 +276,6 @@ class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
         waitlist_channel = discord.utils.get(guild.text_channels, name=f"waitlist-{self.gamemode.lower()}")
         
         if waitlist_channel:
-            # Rendi la waitlist temporaneamente visibile a questo player
             await waitlist_channel.set_permissions(interaction.user, read_messages=True, send_messages=False)
             
             async for message in waitlist_channel.history(limit=20):
@@ -323,19 +317,16 @@ async def on_ready():
 
 
 # --- COMANDO DI VALUTAZIONE ---
-# Questo comando si usa dentro alla chat privata del match per aprirne la valutazione e chiuderla.
 @bot.tree.command(name="evaluate", description="Submit results and permanently delete this match channel")
 async def evaluate(interaction: discord.Interaction):
     channel_id = interaction.channel_id
     
-    # Verifica che il canale in cui si usa il comando sia un canale di match attivo
     if channel_id not in active_matches:
         await interaction.response.send_message("❌ This command can only be used inside an active private match channel!", ephemeral=True)
         return
         
     match_data = active_matches[channel_id]
     
-    # Solo chi ha i ruoli autorizzati (Tester della modalità o Owner/Admin) può usarlo
     is_owner_guild = interaction.user.id == interaction.guild.owner_id
     is_admin = interaction.user.guild_permissions.administrator
     has_specific_tester_role = any(role.name == f"Tester {match_data['gamemode']}" for role in interaction.user.roles)
@@ -345,13 +336,66 @@ async def evaluate(interaction: discord.Interaction):
         await interaction.response.send_message("❌ You are not authorized to evaluate this test match.", ephemeral=True)
         return
         
-    # Mostra la schermata di inserimento Tier
     await interaction.response.send_modal(FastResultModal(
         player_member=match_data['player_member'],
         mc_name=match_data['mc_name'],
         gamemode=match_data['gamemode'],
         ticket_channel_id=channel_id
     ))
+
+
+# --- NUOVO COMANDO: TEST MANUALE ---
+# Consente a un tester di iniziare un match privato con un player anche se la coda è vuota.
+@bot.tree.command(name="test_manual", description="Manually start a test match with a player (bypasses the queue)")
+@app_commands.describe(
+    player="The Discord player you want to test",
+    mc_name="Their Minecraft Username",
+    gamemode="The gamemode for this test"
+)
+async def test_manual(interaction: discord.Interaction, player: discord.Member, mc_name: str, gamemode: str):
+    guild = interaction.guild
+    
+    # Rendi la gamemode maiuscola/minuscola corretta basandoti sul dizionario
+    matched_gm = next((gm for gm in GAMEMODES if gm.lower() == gamemode.lower()), None)
+    if not matched_gm:
+        await interaction.response.send_message(f"❌ Invalid gamemode. Choose one of: {', '.join(GAMEMODES)}", ephemeral=True)
+        return
+
+    # Controlli permessi per il comando
+    is_owner_guild = interaction.user.id == guild.owner_id
+    is_admin = interaction.user.guild_permissions.administrator
+    has_specific_tester_role = any(role.name == f"Tester {matched_gm}" for role in interaction.user.roles)
+    is_owner_role = any(role.name == "Owner" for role in interaction.user.roles)
+    
+    if not (has_specific_tester_role or is_owner_role or is_owner_guild or is_admin):
+        await interaction.response.send_message(f"❌ You need the `Tester {matched_gm}` or `Owner` role to manually test this mode.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+
+    # Crea la categoria se non esiste
+    category = discord.utils.get(guild.categories, name="🎯Tierlist")
+    if not category:
+        category = await guild.create_category("🎯Tierlist")
+
+    # Permessi: Solo il Tester e il Player
+    private_overwrites = {
+        guild.default_role: discord.PermissionOverwrite(read_messages=False),
+        interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
+        player: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+    }
+
+    room_name = f"🔒-match-{matched_gm.lower()}-{player.name}"
+    match_room = await guild.create_text_channel(name=room_name, category=category, overwrites=private_overwrites)
+
+    # Registra il match in memoria in modo che /evaluate funzioni
+    active_matches[match_room.id] = {
+        "player_member": player,
+        "mc_name": mc_name,
+        "gamemode": matched_gm
+    }
+
+    await interaction.followup.send(f"✅ Created manual match channel: {match_room.mention}. You can now conduct the test and use `/evaluate` inside it once done!", ephemeral=True)
 
 
 @bot.tree.command(name="setup_panel", description="Generate the main booking panel")
