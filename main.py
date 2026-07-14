@@ -256,7 +256,6 @@ class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
                 
         await interaction.response.defer(ephemeral=True)
         
-        # 1. RISOLTO: Creazione immediata del canale privato dentro 🎯Tierlist appena il player si iscrive!
         category = discord.utils.get(guild.categories, name="🎯Tierlist")
         if not category:
             category = await guild.create_category("🎯Tierlist")
@@ -264,7 +263,6 @@ class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
         specific_tester_role = discord.utils.get(guild.roles, name=f"Tester {self.gamemode}")
         owner_role = discord.utils.get(guild.roles, name="Owner")
         
-        # Blind channel configuration (Solo il player e lo staff specifico vedono questa stanza)
         private_overwrites = {
             guild.default_role: discord.PermissionOverwrite(read_messages=False),
             interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True)
@@ -277,7 +275,6 @@ class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
         room_name = f"⏳-{self.gamemode.lower()}-{interaction.user.name}"
         private_room = await guild.create_text_channel(name=room_name, category=category, overwrites=private_overwrites)
 
-        # Salviamo l'ID esatto della stanza appena creata
         player_data = {
             'user_id': user_id,
             'mc_name': self.mc_name.value,
@@ -285,13 +282,19 @@ class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
         }
         queues[self.gamemode].append(player_data)
         
-        # Welcoming instructions printed inside the new isolated waiting zone
+        # 🟢 RISOLTO: Generiamo l'embed grafico e la pulsantiera dei Tester...
+        fancy_embed = generate_queue_embed(self.gamemode)
+        staff_view = StaffControlView(self.gamemode) # Genera la vista con il tasto "Join as Tester"
+        
+        # 🟢 RISOLTO: Inviamo la tabella con i bottoni DIRETTAMENTE dentro il canale privato appena creato
         await private_room.send(
-            f"⚡ Welcome to your private {self.gamemode} Testing Room!\n"
-            f"Player: {interaction.user.mention}\n"
-            f"Minecraft Account: {self.mc_name.value}\n\n"
-            f"Please wait here. An authorized tester will open your evaluation shortly."
+            content=f"⚡ Welcome to your private {self.gamemode} Testing Room!\n"
+                    f"Player: {interaction.user.mention} | Minecraft Account: `{self.mc_name.value}`\n"
+                    f"Please wait here. An authorized tester will join and start your evaluation shortly.",
+            embed=fancy_embed, 
+            view=staff_view
         )
+        
         await interaction.followup.send(f"✅ Success! Your private room has been created: {private_room.mention}", ephemeral=True)
 
 # --- DROPDOWN INTERFACE COMPONENTS ---
