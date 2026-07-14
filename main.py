@@ -253,6 +253,65 @@ class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
         await ticket_channel.send(embed=fancy_embed, view=staff_view)
         await interaction.followup.send(f"Success! Head over to your private board: {ticket_channel.mention}", ephemeral=True)
 
+# --- COMPACT STAFF CONTROL BUTTONS VIEW ---
+class StaffControlView(discord.ui.View):
+    def __init__(self, gamemode, ticket_channel_id):
+        super().__init__(timeout=None)
+        self.gamemode = gamemode
+        self.ticket_channel_id = ticket_channel_id
+        self.current_tester = None
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        # Permette all'Owner del server o agli amministratori di testare liberamente senza ruoli obbligatori
+        is_owner_guild = interaction.user.id == interaction.guild.owner_id
+        is_admin = interaction.user.guild_permissions.administrator
+        
+        specific_role_needed = f"Tester {self.gamemode}"
+        has_role = any(role.name == specific_role_needed for role in interaction.user.roles)
+        is_owner_role = any(role.name == "Owner" for role in interaction.user.roles)
+        
+        if not (has_role or is_owner_role or is_owner_guild or is_admin):
+            await interaction.response.send_message(f"❌ Requires `{specific_role_needed}` or `Owner` role.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Join", style=discord.ButtonStyle.blurple)
+    async def join_tester(self, interaction: discord.Interaction):
+        self.current_tester = interaction.user
+        new_embed = generate_queue_embed(self.gamemode, tester_mention=self.current_tester.mention)
+        # RISOLTO: edita correttamente il messaggio aggiornando lo stato senza far fallire l'interazione
+        await interaction.response.edit_message(embed=new_embed, view=self)
+
+    @discord.ui.button(label="Next", style=discord.ButtonStyle.green)
+    async def next_player_btn(self, interaction: discord.Interaction):
+        if not queues[self.gamemode]:
+            await interaction.response.send_message("❌ The queue is empty!", ephemeral=True)
+            return
+
+        # RISOLTO CRASH: estrae correttamente il primo elemento della coda usando l'indice [0]
+        current_player_data = queues[self.gamemode][0]
+        guild = interaction.guild
+        player_member = guild.get_member(current_player_data['user_id'])
+
+        if not player_member:
+            queues[self.gamemode].pop(0)
+            await interaction.response.send_message("⚠️ Player left the server. Entry dismissed.", ephemeral=True)
+            return
+
+        # RISOLTO INTERREZIONE: Apre istantaneamente il Modal. Il pop(0) avviene solo dentro il modal al submit!
+        await interaction.response.send_modal(FastResultModal(
+            player_member=player_member,
+            mc_name=current_player_data['mc_name'],
+            gamemode=self.gamemode,
+            ticket_channel_id=self.ticket_channel_id
+        ))
+
+    @discord.ui.button(label="Leave", style=discord.ButtonStyle.red)
+    async def leave_tester(self, interaction: discord.Interaction):
+        self.current_tester = None
+        new_embed = generate_queue_embed(self.gamemode, tester_mention="None")
+        await interaction.response.edit_message(embed=new_embed, view=self)
+
 # --- DROPDOWN INTERFACE COMPONENTS ---
 class GamemodeSelect(discord.ui.Select):
     def __init__(self):
@@ -260,6 +319,7 @@ class GamemodeSelect(discord.ui.Select):
         super().__init__(placeholder="Choose a gamemode to test...", options=options)
         
     async def callback(self, interaction: discord.Interaction):
+        # RISOLTO CRASH CODA: passa l'elemento stringa singolo usando l'indice [0] invece dell'oggetto lista completo!
         await interaction.response.send_modal(MinecraftNameModal(self.values[0]))
 
 class MainTicketView(discord.ui.View):
@@ -272,15 +332,16 @@ async def on_ready():
     print(f"Logged in as {bot.user.name}")
     try: 
         await bot.tree.sync()
+        print("Slash commands synced successfully!")
     except Exception as e: 
-        print(e)
+        print(f"Failed to sync slash commands: {e}")
 
 @bot.command()
 @commands.is_owner()
 async def setup_queue(ctx):
     embed = discord.Embed(
         title="⚔️ Request a Tierlist Test",
-        description="Select the gamemode you want to be tested in from the dropdown menu below to join the global board.\n\n⚠️ Remember: Never share your Minecraft account credentials or password here.",
+        description="Select the gamemode you want to be tested in from the dropdown menu below to join the global board.\n\n⚠️ **Remember:** Never share your Minecraft account credentials or password here.",
         color=discord.Color.blue()
     )
     await ctx.send(embed=embed, view=MainTicketView())
