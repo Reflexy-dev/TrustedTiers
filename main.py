@@ -37,6 +37,8 @@ GAMEMODES = list(GAMEMODE_EMOJIS.keys())
 queues = {gm: [] for gm in GAMEMODES}
 cooldowns = {}
 active_testers = {gm: None for gm in GAMEMODES}
+# Struttura per associare temporaneamente i canali di match ai rispettivi player e modalità
+active_matches = {} 
 
 def is_user_in_any_queue(user_id):
     for gm in GAMEMODES:
@@ -65,7 +67,7 @@ def generate_queue_embed(gamemode):
     return embed
 
 
-# --- EVALUATION MODAL (INSIDE PRIVATE TICKET) ---
+# --- EVALUATION MODAL ---
 class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
     def __init__(self, player_member, mc_name, gamemode, ticket_channel_id):
         super().__init__()
@@ -101,7 +103,7 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         embed.add_field(name="Rank Earned:", value=f"**{rank_earned}**", inline=True)
         embed.set_thumbnail(url=skin_url)
         
-        # High Results Filter (LT1, HT1, LT2, HT2) -> high-results channel
+        # Filtro risultati (LT2, HT2, LT1, HT1 vanno su high-results, gli altri su results)
         high_ranks = ["LT1", "HT1", "LT2", "HT2"]
         channel_name = "🥇│hight-results" if any(hr == rank_earned for hr in high_ranks) else "🏆│results"
         
@@ -113,10 +115,10 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
                 try: await msg.add_reaction(emo)
                 except Exception: pass
         
-        # Set 7 days cooldown for the player
+        # Imposta cooldown di 7 giorni per il player
         cooldowns[self.player_member.id] = datetime.utcnow() + timedelta(days=7)
 
-        # Formatta il ruolo come richiesto (es. "LT2 Sword")
+        # Assegnazione automatica del ruolo (es. "LT2 Sword")
         role_name = f"{rank_earned} {self.gamemode}"
         role = discord.utils.get(guild.roles, name=role_name)
         if not role:
@@ -126,24 +128,14 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
             try: await self.player_member.add_roles(role)
             except Exception: pass
 
-        # FULLY DELETE THE PRIVATE MATCH CHANNEL
+        # RIMUOVI IL CANALE DA QUELLI TRACCIATI ED ELIMINALO DEFINITIVAMENTE
+        if self.ticket_channel_id in active_matches:
+            del active_matches[self.ticket_channel_id]
+
         match_channel = guild.get_channel(self.ticket_channel_id)
         if match_channel:
             try: await match_channel.delete()
             except Exception: pass
-
-
-class QuickEvalView(discord.ui.View):
-    def __init__(self, p_mem, mc_n, gm, r_id):
-        super().__init__(timeout=None)
-        self.p_mem = p_mem
-        self.mc_n = mc_n
-        self.gm = gm
-        self.r_id = r_id
-    
-    @discord.ui.button(label="Submit Results & Close Ticket", style=discord.ButtonStyle.green, custom_id="input_results_fixed_btn")
-    async def open_modal_inside(self, btn_interaction: discord.Interaction):
-        await btn_interaction.response.send_modal(FastResultModal(self.p_mem, self.mc_n, self.gm, self.r_id))
 
 
 # --- PERSISTENT STAFF CONTROL BOARD ---
@@ -203,17 +195,18 @@ class StaffControlView(discord.ui.View):
 
         await interaction.response.defer()
 
-        # REMOVE CODA ACCESS FOR THIS PLAYER (Hides the waitlist board completely for them)
+        # NASCONDI IL CANALE DELLA WAITLIST AL PLAYER (Non lo vedrà più)
         try:
             await interaction.channel.set_permissions(player_member, overwrite=None)
         except Exception:
             pass
 
-        # INITIALIZE PRIVATISSIMO TICKET (Only Tester & current Player)
+        # CREAZIONE CATEGORIA SE NON ESISTE
         category = discord.utils.get(guild.categories, name="🎯Tierlist")
         if not category:
             category = await guild.create_category("🎯Tierlist")
 
+        # Configurazione permessi del canale privato del test (Solo tester e player)
         private_overwrites = {
             guild.default_role: discord.PermissionOverwrite(read_messages=False),
             interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
@@ -221,15 +214,18 @@ class StaffControlView(discord.ui.View):
         }
 
         room_name = f"🔒-match-{self.gamemode.lower()}-{player_member.name}"
+        
+        # IL CANALE VIENE CREATO COMPLETAMENTE VUOTO SENZA MESSAGGI DI BENVENUTO
         match_room = await guild.create_text_channel(name=room_name, category=category, overwrites=private_overwrites)
 
-        eval_view = QuickEvalView(player_member, current_player_data['mc_name'], self.gamemode, match_room.id)
+        # Traccia i dettagli del canale per il comando di valutazione /evaluate
+        active_matches[match_room.id] = {
+            "player_member": player_member,
+            "mc_name": current_player_data['mc_name'],
+            "gamemode": self.gamemode
+        }
         
-        await match_room.send(
-            content=f"⚡ **Private Match Room Initialized**\nTester: {interaction.user.mention}\nPlayer: {player_member.mention}\n\nConduct your tier test matches here. Once finished, the tester must click the button below to submit scores and close this channel forever.",
-            view=eval_view
-        )
-        
+        # Aggiorna il tabellone principale
         refreshed_embed = generate_queue_embed(self.gamemode)
         await interaction.message.edit(embed=refreshed_embed, view=self)
 
@@ -282,11 +278,10 @@ class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
         }
         queues[self.gamemode].append(player_data)
         
-        # TROVA IL CANALE DELLA WAITLIST SPECIFICO
         waitlist_channel = discord.utils.get(guild.text_channels, name=f"waitlist-{self.gamemode.lower()}")
         
         if waitlist_channel:
-            # Sblocca la visibilità della waitlist SOLO per questo player temporaneamente
+            # Rendi la waitlist temporaneamente visibile a questo player
             await waitlist_channel.set_permissions(interaction.user, read_messages=True, send_messages=False)
             
             async for message in waitlist_channel.history(limit=20):
@@ -326,6 +321,39 @@ async def on_ready():
     except Exception as e:
         print(f"Failed to sync slash commands: {e}")
 
+
+# --- COMANDO DI VALUTAZIONE ---
+# Questo comando si usa dentro alla chat privata del match per aprirne la valutazione e chiuderla.
+@bot.tree.command(name="evaluate", description="Submit results and permanently delete this match channel")
+async def evaluate(interaction: discord.Interaction):
+    channel_id = interaction.channel_id
+    
+    # Verifica che il canale in cui si usa il comando sia un canale di match attivo
+    if channel_id not in active_matches:
+        await interaction.response.send_message("❌ This command can only be used inside an active private match channel!", ephemeral=True)
+        return
+        
+    match_data = active_matches[channel_id]
+    
+    # Solo chi ha i ruoli autorizzati (Tester della modalità o Owner/Admin) può usarlo
+    is_owner_guild = interaction.user.id == interaction.guild.owner_id
+    is_admin = interaction.user.guild_permissions.administrator
+    has_specific_tester_role = any(role.name == f"Tester {match_data['gamemode']}" for role in interaction.user.roles)
+    is_owner_role = any(role.name == "Owner" for role in interaction.user.roles)
+    
+    if not (has_specific_tester_role or is_owner_role or is_owner_guild or is_admin):
+        await interaction.response.send_message("❌ You are not authorized to evaluate this test match.", ephemeral=True)
+        return
+        
+    # Mostra la schermata di inserimento Tier
+    await interaction.response.send_modal(FastResultModal(
+        player_member=match_data['player_member'],
+        mc_name=match_data['mc_name'],
+        gamemode=match_data['gamemode'],
+        ticket_channel_id=channel_id
+    ))
+
+
 @bot.tree.command(name="setup_panel", description="Generate the main booking panel")
 @app_commands.default_permissions(administrator=True)
 async def setup_panel(interaction: discord.Interaction):
@@ -336,7 +364,7 @@ async def setup_panel(interaction: discord.Interaction):
     )
     await interaction.response.send_message(embed=embed, view=MainTicketView())
 
-# CREAZIONE AUTOMATICA DELLA WAITLIST CON CONFIGURAZIONE PERMESSI RICHIESTA
+
 @bot.tree.command(name="setup_board", description="Create and setup the live board inside a waitlist channel")
 @app_commands.default_permissions(administrator=True)
 async def setup_board(interaction: discord.Interaction, gamemode: str):
@@ -348,23 +376,20 @@ async def setup_board(interaction: discord.Interaction, gamemode: str):
 
     await interaction.response.defer(ephemeral=True)
 
-    # Cerca o crea la categoria
     category = discord.utils.get(guild.categories, name="🎯Tierlist")
     if not category:
         category = await guild.create_category("🎯Tierlist")
 
-    # Ruoli speciali
     tester_role = discord.utils.get(guild.roles, name=f"Tester {matched_gm}")
     owner_role = discord.utils.get(guild.roles, name="Owner")
 
-    # Costruisci i permessi base del canale
     overwrites = {
-        guild.default_role: discord.PermissionOverwrite(read_messages=False), # Chiuso a tutti di base
+        guild.default_role: discord.PermissionOverwrite(read_messages=False),
     }
     if tester_role:
-        overwrites[tester_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True) # Visibile solo al tester specializzato
+        overwrites[tester_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
     if owner_role:
-        overwrites[owner_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True) # Sempre visibile all'Owner
+        overwrites[owner_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
 
     channel_name = f"waitlist-{matched_gm.lower()}"
     waitlist_channel = discord.utils.get(guild.text_channels, name=channel_name)
