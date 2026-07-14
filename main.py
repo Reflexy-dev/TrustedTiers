@@ -33,7 +33,7 @@ GAMEMODE_EMOJIS = {
 
 GAMEMODES = list(GAMEMODE_EMOJIS.keys())
 
-# Global Data Structures
+# Strutture dati globali
 queues = {gm: [] for gm in GAMEMODES}
 cooldowns = {}
 active_testers = {gm: None for gm in GAMEMODES}
@@ -45,7 +45,7 @@ def is_user_in_any_queue(user_id):
     return False
 
 def get_remaining_cooldown(member_id):
-    """Calcola il tempo rimanente del cooldown di 7 giorni."""
+    """Calcola con precisione quanti giorni, ore e minuti mancano alla fine del cooldown."""
     if member_id in cooldowns:
         expiration = cooldowns[member_id]
         now = datetime.utcnow()
@@ -57,13 +57,13 @@ def get_remaining_cooldown(member_id):
             
             parts = []
             if days > 0:
-                parts.append(f"{days}d")
+                parts.append(f"{days} giorn{'o' if days == 1 else 'i'}")
             if hours > 0:
-                parts.append(f"{hours}h")
+                parts.append(f"{hours} or{'a' if hours == 1 else 'e'}")
             if minutes > 0:
-                parts.append(f"{minutes}m")
+                parts.append(f"{minutes} minut{'o' if minutes == 1 else 'i'}")
                 
-            return " ".join(parts) if parts else "qualche secondo"
+            return ", ".join(parts) if parts else "qualche secondo"
         else:
             del cooldowns[member_id]
     return None
@@ -98,7 +98,6 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         self.gamemode = gamemode
         self.ticket_channel_id = ticket_channel_id
         
-        # Campi identici allo screenshot di MCTIERS (incluso Region)
         self.region = discord.ui.TextInput(label="Region", placeholder="e.g. EU, NA, AS", default="EU", required=True)
         self.prev_rank = discord.ui.TextInput(label="Previous Rank", placeholder="e.g. Unranked, Low Tier 5", default="Unranked", required=True)
         self.new_rank = discord.ui.TextInput(label="Rank Earned", placeholder="e.g. Low Tier 5, High Tier 2", required=True)
@@ -114,45 +113,43 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         prev_rank_val = self.prev_rank.value.strip()
         region_val = self.region.value.upper().strip()
         
-        # URL Skin 3D stabile del player (Corpo intero di mc-heads.net)
-        skin_url = f"https://mc-heads.net/body/{self.mc_name}/256.png"
+        # API BUST: Genera il busto 3D tagliato identico a quello originale di MCTIERS (Skin Nera)
+        skin_url = f"https://visage.surreal.ca/bust/256/{self.mc_name}.png"
         
-        # EMBED IDENTICO AL COPIATO DI MCTIERS
+        # Embed stile MCTIERS con colore rosso perfetto
         embed = discord.Embed(
-            color=0xdd2e44  # Rosso coordinato MCTIERS
+            color=0xdd2e44
         )
         embed.set_author(
             name=f"{self.mc_name}'s Test Results 🏆", 
             icon_url=self.player_member.display_avatar.url if self.player_member.display_avatar else None
         )
-        # Visualizza la skin 3D sulla destra
+        # Mostra il busto 3D sulla destra
         embed.set_thumbnail(url=skin_url)
         
-        # Campi identici allo screenshot
         embed.add_field(name="Tester:", value=interaction.user.mention, inline=False)
         embed.add_field(name="Region:", value=region_val, inline=False)
-        embed.add_field(name="Username:", value=f"*{self.mc_name}*", inline=False)
+        embed.add_field(name="Username:", value=f"{self.mc_name}", inline=False)
         embed.add_field(name="Previous Rank:", value=prev_rank_val, inline=False)
         embed.add_field(name="Rank Earned:", value=rank_earned, inline=False)
         
-        # Filtro canali risultati (Tier alti in hight-results, gli altri in results)
         high_tier_keywords = ["LT1", "HT1", "LT2", "HT2", "1", "2", "Tier 1", "Tier 2", "Low Tier 1", "High Tier 1", "Low Tier 2", "High Tier 2"]
         is_high = any(keyword.lower() in rank_earned.lower() for keyword in high_tier_keywords)
         channel_name = "🥇│hight-results" if is_high else "🏆│results"
         
         target_channel = discord.utils.get(guild.text_channels, name=channel_name)
         if target_channel:
-            # Tagga il giocatore fuori dall'embed sopra l'embed, proprio come nello screenshot
+            # Tagga il player SOPRA l'embed proprio come fa l'originale
             msg = await target_channel.send(content=self.player_member.mention, embed=embed)
             reactions = ["👑", "🥳", "😱", "😭", "😂", "💀"]
             for emo in reactions:
                 try: await msg.add_reaction(emo)
                 except Exception: pass
         
-        # Imposta il Cooldown di 7 giorni per il giocatore
+        # Applica il cooldown di 7 giorni
         cooldowns[self.player_member.id] = datetime.utcnow() + timedelta(days=7)
 
-        # Assegnazione automatica del ruolo (es. "Low Tier 5 Sword")
+        # Ruolo automatico
         role_name = f"{rank_earned} {self.gamemode}"
         role = discord.utils.get(guild.roles, name=role_name)
         if not role:
@@ -162,14 +159,14 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
             try: await self.player_member.add_roles(role)
             except Exception: pass
 
-        # Elimina definitivamente il canale privato di match
+        # Chiude la stanza privata di match
         match_channel = guild.get_channel(self.ticket_channel_id)
         if match_channel:
             try: await match_channel.delete()
             except Exception: pass
 
 
-# --- BOTTONE SEGRETO PER IL TESTER ---
+# --- TICKET PRIVATE EVALUATION PANEL ---
 class TesterPrivateEvalView(discord.ui.View):
     def __init__(self, player_member, mc_name, gamemode, channel_id):
         super().__init__(timeout=None)
@@ -189,7 +186,6 @@ class TesterPrivateEvalView(discord.ui.View):
             await interaction.response.send_message("❌ Only authorized Tester staff or the Owner can trigger this evaluation!", ephemeral=True)
             return
 
-        # Mostra il modulo di inserimento tier
         await interaction.response.send_modal(FastResultModal(
             player_member=self.player_member,
             mc_name=self.mc_name,
@@ -198,7 +194,7 @@ class TesterPrivateEvalView(discord.ui.View):
         ))
 
 
-# --- PERSISTENT STAFF CONTROL BOARD ---
+# --- BOARD DI CONTROLLO PER LO STAFF ---
 class StaffControlView(discord.ui.View):
     def __init__(self, gamemode: str):
         super().__init__(timeout=None)
@@ -253,7 +249,6 @@ class StaffControlView(discord.ui.View):
             await interaction.response.edit_message(embed=refreshed_embed, view=self)
             return
 
-        # Nascondi la waitlist al player
         try:
             await interaction.channel.set_permissions(player_member, overwrite=None)
         except Exception:
@@ -272,7 +267,6 @@ class StaffControlView(discord.ui.View):
         room_name = f"🔒-match-{self.gamemode.lower()}-{player_member.name}"
         match_room = await guild.create_text_channel(name=room_name, category=category, overwrites=private_overwrites)
 
-        # Risposta privata (effimera) con il bottone per inserire il Tier (solo il Tester abilitato o l'Owner possono cliccarlo)
         eval_view = TesterPrivateEvalView(player_member, current_player_data['mc_name'], self.gamemode, match_room.id)
         await interaction.response.send_message(
             content=f"⚡ **Match Room Created:** {match_room.mention}\nThe chat inside is completely clean. Use the button below whenever you are ready to input the Tier and close the match.",
@@ -280,7 +274,6 @@ class StaffControlView(discord.ui.View):
             ephemeral=True
         )
         
-        # Aggiorna la waitlist visibile sul server
         refreshed_embed = generate_queue_embed(self.gamemode)
         await interaction.message.edit(embed=refreshed_embed, view=self)
 
@@ -298,7 +291,7 @@ class StaffControlView(discord.ui.View):
         await interaction.response.edit_message(embed=refreshed_embed, view=self)
 
 
-# --- MINECRAFT NAME VERIFICATION MODAL ---
+# --- MINECRAFT REGISTRATION MODAL ---
 class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
     mc_name = discord.ui.TextInput(label="Enter your Minecraft Username", placeholder="e.g. Stev3_", required=True)
     
@@ -317,10 +310,10 @@ class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
             await interaction.response.send_message("❌ You are already queued up for another test!", ephemeral=True)
             return
             
-        # CONTROLLO COOLDOWN DEI 7 GIORNI ALL'ISCRIZIONE (con calcolo ore/giorni rimasti)
+        # Controllo dei 7 giorni con messaggio personalizzato con tempo rimasto preciso
         remaining = get_remaining_cooldown(user_id)
         if remaining is not None and not (is_owner or is_admin):
-            await interaction.response.send_message(f"❌ Cooldown active! Remaining: {remaining}.", ephemeral=True)
+            await interaction.response.send_message(f"❌ Non puoi eseguire il test. Mancano ancora **{remaining}** prima di poterne richiedere un altro.", ephemeral=True)
             return
                 
         await interaction.response.defer(ephemeral=True)
