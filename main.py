@@ -222,7 +222,8 @@ class GamemodeSelect(discord.ui.Select):
         super().__init__(placeholder="Choose a gamemode to test...", options=options)
         
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.send_modal(MinecraftNameModal(self.values))
+        # CORRETTO: Prendiamo il singolo valore [0] invece dell'intera lista, altrimenti va in crash!
+        await interaction.response.send_modal(MinecraftNameModal(self.values[0]))
 
 class MainTicketView(discord.ui.View):
     def __init__(self):
@@ -234,15 +235,16 @@ async def on_ready():
     print(f"Logged in as {bot.user.name}")
     try: 
         await bot.tree.sync()
+        print("Slash commands synced successfully!")
     except Exception as e: 
-        print(e)
+        print(f"Failed to sync slash commands: {e}")
 
 @bot.command()
 @commands.is_owner()
 async def setup_queue(ctx):
     embed = discord.Embed(
         title="⚔️ Request a Tierlist Test",
-        description="Select the gamemode you want to be tested in from the dropdown menu below. Remember: Never share your Minecraft account credentials or password here.",
+        description="Select the gamemode you want to be tested in from the dropdown menu below to join the global board.\n\n⚠️ **Remember:** Never share your Minecraft account credentials or password here.",
         color=discord.Color.blue()
     )
     await ctx.send(embed=embed, view=MainTicketView())
@@ -272,6 +274,7 @@ async def next_player(interaction: discord.Interaction, gamemode: app_commands.C
     is_owner = any(role.name == "Owner" for role in interaction.user.roles)
     is_admin = interaction.user.guild_permissions.administrator
 
+    # Block execution if the tester doesn't have the specific role for THIS gamemode (or isn't owner/admin)
     if not (has_specific_tester_role or is_owner or is_admin):
         await interaction.response.send_message(f"❌ You do not have the required `{specific_role_needed}` or `Owner` role to run this queue!", ephemeral=True)
         return
@@ -281,7 +284,7 @@ async def next_player(interaction: discord.Interaction, gamemode: app_commands.C
         return
 
     # Extract first player info from array safely
-    current_player_data = queues[gamemode_str]
+    current_player_data = queues[gamemode_str][0]
     guild = interaction.guild
     player_member = guild.get_member(current_player_data['user_id'])
 
@@ -290,7 +293,7 @@ async def next_player(interaction: discord.Interaction, gamemode: app_commands.C
         await interaction.response.send_message("⚠️ The first player left the server. Queue entry dismissed!", ephemeral=True)
         return
 
-    # RISOLTO: Apre la schermata di valutazione istantaneamente senza mandare messaggi doppi o disordinati in chat
+    # Apre la schermata di valutazione istantaneamente senza mandare messaggi doppi o disordinati in chat
     await interaction.response.send_modal(FastResultModal(
         player_member=player_member,
         mc_name=current_player_data['mc_name'],
