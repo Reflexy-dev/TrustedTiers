@@ -74,50 +74,54 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         self.gamemode = gamemode
         self.ticket_channel_id = ticket_channel_id
         
-        self.score = discord.ui.TextInput(label=f"Match Score for {mc_name}", placeholder="e.g. 3-0, 2-1", required=True)
-        self.prev_rank = discord.ui.TextInput(label="Previous Tier", placeholder="e.g. Unranked, LT5", default="Unranked", required=True)
-        self.new_rank = discord.ui.TextInput(label="New Tier Earned", placeholder="e.g. LT4, HT2, LT1", required=True)
+        # Campi identici allo screenshot di MCTIERS (incluso Region)
+        self.region = discord.ui.TextInput(label="Region", placeholder="e.g. EU, NA, AS", default="EU", required=True)
+        self.prev_rank = discord.ui.TextInput(label="Previous Rank", placeholder="e.g. Unranked, Low Tier 5", default="Unranked", required=True)
+        self.new_rank = discord.ui.TextInput(label="Rank Earned", placeholder="e.g. Low Tier 5, High Tier 2", required=True)
         
-        self.add_item(self.score)
+        self.add_item(self.region)
         self.add_item(self.prev_rank)
         self.add_item(self.new_rank)
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         guild = interaction.guild
-        rank_earned = self.new_rank.value.upper().strip()
-        score_val = self.score.value
-        prev_rank_val = self.prev_rank.value.upper().strip()
-        emoji = GAMEMODE_EMOJIS.get(self.gamemode, "🏆")
+        rank_earned = self.new_rank.value.strip()
+        prev_rank_val = self.prev_rank.value.strip()
+        region_val = self.region.value.upper().strip()
         
-        # 3D Full-Body Skin Render (Stile MCPVP)
+        # URL per la Skin 3D del player (MCTiers Style)
         skin_url = f"https://visage.surreal.ca/full/512/{self.mc_name}.png"
         
-        # EMBED STILE MCPVP/MCTIERS (Pulito, compatto, ordinato e con Skin 3D grande sulla destra)
+        # EMBED IDENTICO AL COPIATO DI MCTIERS
         embed = discord.Embed(
-            title=f"{emoji} TIER TEST RESULT",
-            color=0x2f3136,
-            timestamp=datetime.utcnow()
+            color=0xdd2e44  # Colore rosso identico alla barra dello screenshot
         )
-        embed.set_thumbnail(url=skin_url) # Visualizza la skin 3D intera sul lato destro
+        # Imposta titolo con il nome e avatar rotondo del player a sinistra e la coppa
+        embed.set_author(
+            name=f"{self.mc_name}'s Test Results 🏆", 
+            icon_url=self.player_member.display_avatar.url
+        )
+        # Visualizza la skin 3D sulla destra
+        embed.set_thumbnail(url=skin_url)
         
-        embed.add_field(name="👤 Player", value=f"{self.player_member.mention} (`{self.mc_name}`)", inline=True)
-        embed.add_field(name="🧑‍🏫 Tester", value=interaction.user.mention, inline=True)
-        embed.add_field(name="🎮 Gamemode", value=f"`{self.gamemode}`", inline=True)
+        # Campi scritti con lo stesso identico formato (Grassetto l'intestazione, testo sotto, inline=False per averli ordinati a cascata)
+        embed.add_field(name="Tester:", value=interaction.user.mention, inline=False)
+        embed.add_field(name="Region:", value=region_val, inline=False)
+        embed.add_field(name="Username:", value=f"*{self.mc_name}*", inline=False)
+        embed.add_field(name="Previous Rank:", value=prev_rank_val, inline=False)
+        embed.add_field(name="Rank Earned:", value=rank_earned, inline=False)
         
-        embed.add_field(name="📈 Previous Tier", value=f"`{prev_rank_val}`", inline=True)
-        embed.add_field(name="🔥 New Tier", value=f"**{rank_earned}**", inline=True)
-        embed.add_field(name="📊 Score", value=f"`{score_val}`", inline=True)
-        
-        embed.set_footer(text="MCPVP Tierlist System • Verified Result", icon_url=guild.icon.url if guild.icon else None)
-        
-        # Filtro canali risultati (LT1, HT1, LT2, HT2 vanno su high-results)
-        high_ranks = ["LT1", "HT1", "LT2", "HT2"]
-        channel_name = "🥇│hight-results" if any(hr == rank_earned for hr in high_ranks) else "🏆│results"
+        # Filtro canali risultati
+        # Controlla se contiene parole chiave dei Tier alti
+        high_tier_keywords = ["LT1", "HT1", "LT2", "HT2", "1", "2", "Tier 1", "Tier 2", "Low Tier 1", "High Tier 1", "Low Tier 2", "High Tier 2"]
+        is_high = any(keyword.lower() in rank_earned.lower() for keyword in high_tier_keywords)
+        channel_name = "🥇│hight-results" if is_high else "🏆│results"
         
         target_channel = discord.utils.get(guild.text_channels, name=channel_name)
         if target_channel:
-            msg = await target_channel.send(embed=embed)
+            # Mandiamo la menzione del giocatore @Giocatore sopra l'embed, proprio come nello screenshot
+            msg = await target_channel.send(content=self.player_member.mention, embed=embed)
             reactions = ["👑", "🥳", "😱", "😭", "😂", "💀"]
             for emo in reactions:
                 try: await msg.add_reaction(emo)
@@ -126,7 +130,7 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         # Cooldown di 7 giorni per il player
         cooldowns[self.player_member.id] = datetime.utcnow() + timedelta(days=7)
 
-        # Assegnazione automatica del ruolo (es. "LT2 Sword")
+        # Assegnazione automatica del ruolo (es. "Low Tier 5 Sword")
         role_name = f"{rank_earned} {self.gamemode}"
         role = discord.utils.get(guild.roles, name=role_name)
         if not role:
@@ -154,16 +158,16 @@ class TesterPrivateEvalView(discord.ui.View):
 
     @discord.ui.button(label="⭐ Open Tier Evaluation", style=discord.ButtonStyle.green, custom_id="tester_eval_secret_btn")
     async def open_eval_modal(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Sicurezza: solo il Tester corretto o chi possiede il ruolo "Owner" / Amministratori possono usarlo
         is_owner_guild = interaction.user.id == interaction.guild.owner_id
         is_admin = interaction.user.guild_permissions.administrator
         has_owner_role = any(role.name == "Owner" for role in interaction.user.roles)
         has_tester_role = any(role.name == f"Tester {self.gamemode}" for role in interaction.user.roles)
         
         if not (has_tester_role or has_owner_role or is_owner_guild or is_admin):
-            await interaction.response.send_message("❌ Only the assigned Tester or the Owner can use this button!", ephemeral=True)
+            await interaction.response.send_message("❌ Only authorized Tester staff or the Owner can trigger this evaluation!", ephemeral=True)
             return
 
+        # Mostra il modulo di inserimento tier
         await interaction.response.send_modal(FastResultModal(
             player_member=self.player_member,
             mc_name=self.mc_name,
@@ -237,7 +241,6 @@ class StaffControlView(discord.ui.View):
         if not category:
             category = await guild.create_category("🎯Tierlist")
 
-        # Canale visibile solo a Tester del gamemode e ad Owner/Admin
         private_overwrites = {
             guild.default_role: discord.PermissionOverwrite(read_messages=False),
             interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
@@ -247,7 +250,7 @@ class StaffControlView(discord.ui.View):
         room_name = f"🔒-match-{self.gamemode.lower()}-{player_member.name}"
         match_room = await guild.create_text_channel(name=room_name, category=category, overwrites=private_overwrites)
 
-        # Risposta effimera: visibile solo al tester (e sicura in modo che solo Tester/Owner possano premere il bottone)
+        # Invio della risposta EFFIMERA (invisibile al player) per il Tester
         eval_view = TesterPrivateEvalView(player_member, current_player_data['mc_name'], self.gamemode, match_room.id)
         await interaction.response.send_message(
             content=f"⚡ **Match Room Created:** {match_room.mention}\nThe chat inside is completely clean. Use the button below whenever you are ready to input the Tier and close the match.",
@@ -255,7 +258,7 @@ class StaffControlView(discord.ui.View):
             ephemeral=True
         )
         
-        # Aggiorna la waitlist
+        # Aggiorna la waitlist visibile sul server
         refreshed_embed = generate_queue_embed(self.gamemode)
         await interaction.message.edit(embed=refreshed_embed, view=self)
 
@@ -322,7 +325,6 @@ class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
             await interaction.followup.send(f"✅ Success! You have been added to the board. Check your assigned waitlist channel: {waitlist_channel.mention}", ephemeral=True)
         else:
             await interaction.followup.send(f"✅ Registered for {self.gamemode}! (Warning: `#waitlist-{self.gamemode.lower()}` channel not found on server)", ephemeral=True)
-
 
 class GamemodeSelect(discord.ui.Select):
     def __init__(self):
