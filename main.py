@@ -113,11 +113,10 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         prev_rank_val = self.prev_rank.value.strip()
         region_val = self.region.value.upper().strip()
         
-        # API CRAVATAR BUST RENDERING DIAGONALE STABILE
-        # Crea l'effetto busto/testa ravvicinata in 3D diagonale identica allo screenshot originale
-        skin_url = f"https://cravatar.eu/helm/avatar/{self.mc_name}/256.png"
+        # API VISAGE BUST RENDERING DIAGONALE 3D IDENTICO ALLO SCREENSHOT
+        skin_url = f"https://visage.surreal.co/bust/256/{self.mc_name}.png"
         
-        # Embed stile MCTIERS con colore rosso perfetto
+        # Embed stile MCTIERS con colore rosso perfetto (#dd2e44)
         embed = discord.Embed(
             color=0xdd2e44
         )
@@ -125,7 +124,7 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
             name=f"{self.mc_name}'s Test Results 🏆", 
             icon_url=self.player_member.display_avatar.url if self.player_member.display_avatar else None
         )
-        # Mostra l'avatar 3D sulla destra
+        # Mostra il busto 3D inclinato sulla destra
         embed.set_thumbnail(url=skin_url)
         
         embed.add_field(name="Tester:", value=interaction.user.mention, inline=False)
@@ -140,12 +139,14 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         
         target_channel = discord.utils.get(guild.text_channels, name=channel_name)
         if target_channel:
-            # Tagga il player SOPRA l'embed proprio come fa l'originale
+            # Tagga il player SOPRA l'embed proprio come fa l'originale dello screenshot
             msg = await target_channel.send(content=self.player_member.mention, embed=embed)
             reactions = ["👑", "🥳", "😱", "😭", "😂", "💀"]
             for emo in reactions:
-                try: await msg.add_reaction(emo)
-                except Exception: pass
+                try: 
+                    await msg.add_reaction(emo)
+                except Exception: 
+                    pass
         
         # Applica il cooldown di 7 giorni
         cooldowns[self.player_member.id] = datetime.utcnow() + timedelta(days=7)
@@ -154,17 +155,23 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         role_name = f"{rank_earned} {self.gamemode}"
         role = discord.utils.get(guild.roles, name=role_name)
         if not role:
-            try: role = await guild.create_role(name=role_name, mentionable=True, color=discord.Color.light_gray())
-            except Exception: pass
+            try: 
+                role = await guild.create_role(name=role_name, mentionable=True, color=discord.Color.light_gray())
+            except Exception: 
+                pass
         if role:
-            try: await self.player_member.add_roles(role)
-            except Exception: pass
+            try: 
+                await self.player_member.add_roles(role)
+            except Exception: 
+                pass
 
         # Chiude la stanza privata di match
         match_channel = guild.get_channel(self.ticket_channel_id)
         if match_channel:
-            try: await match_channel.delete()
-            except Exception: pass
+            try: 
+                await match_channel.delete()
+            except Exception: 
+                pass
 
 
 # --- TICKET PRIVATE EVALUATION PANEL ---
