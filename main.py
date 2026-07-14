@@ -44,6 +44,20 @@ def is_user_in_any_queue(user_id):
             return True
     return False
 
+@bot.event
+async def on_ready():
+    print(f"Logged in as {bot.user.name}")
+    try:
+        # ⚠️ SOSTITUISCI QUESTI NUMERI CON L'ID REALE DEL TUO SERVER DISCORD
+        guild_id = 123456789012345678  
+        guild_object = discord.Object(id=guild_id)
+        
+        bot.tree.copy_global_to(guild=guild_object)
+        await bot.tree.sync(guild=guild_object)
+        print("✅ Slash commands synced locally to your server!")
+    except Exception as e:
+        print(f"❌ Failed to sync slash commands: {e}")
+
 # --- ULTRA SIMPLE EMBED QUEUE GENERATOR ---
 def generate_queue_embed(gamemode, tester_1="None", tester_2="None"):
     emoji = GAMEMODE_EMOJIS.get(gamemode, "❓")
