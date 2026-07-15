@@ -113,9 +113,9 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         prev_rank_val = self.prev_rank.value.strip()
         region_val = self.region.value.upper().strip()
         
-        # RENDERING REALE 3D IN DIAGONALE ISOMETRICA DI MC-HEADS (ENDPOINT /player/)
-        # Questo mostra la skin intera girata di 3/4 esattamente in stile Minecraft
-        skin_url = f"https://mc-heads.net/player/{self.mc_name}/256.png"
+        # RENDERING 3D BUST (STILE ORIGINALE MCPVP / MINETIERS)
+        # Questo endpoint restituisce il busto 3D ombreggiato, inclinato esattamente come nello screenshot
+        skin_url = f"https://visage.surreal.host/bust/256/{self.mc_name}"
         
         # Embed stile MCTIERS con colore rosso perfetto (#dd2e44)
         embed = discord.Embed(
