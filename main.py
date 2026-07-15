@@ -113,11 +113,11 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         prev_rank_val = self.prev_rank.value.strip()
         region_val = self.region.value.upper().strip()
         
-        # Estrae e pulisce il nome Minecraft inserito dal giocatore al momento della registrazione
+        # Pulisce l'username Minecraft inserito
         clean_mc_name = self.mc_name.strip()
         
-        # QUESTO È IL RENDER ESATTO DI VISAGE BUST (3D inclinato e ombreggiato a 512px)
-        skin_url = f"https://visage.surreal.host/bust/512/{clean_mc_name}"
+        # USA CRAFATAR BUST: Stessa posa 3D identica allo screenshot, ma ultra stabile e veloce
+        skin_url = f"https://crafatar.com/renders/body/{clean_mc_name}?size=512&overlay"
         
         # Embed stile MCTIERS con colore rosso perfetto (#dd2e44)
         embed = discord.Embed(
