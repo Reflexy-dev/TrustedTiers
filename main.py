@@ -113,23 +113,24 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         prev_rank_val = self.prev_rank.value.strip()
         region_val = self.region.value.upper().strip()
         
-        # Rimuove eventuali spazi bianchi accidentali nel nome Minecraft per evitare URL corrotti
+        # Pulizia del nome utente Minecraft
         clean_mc_name = self.mc_name.strip()
         
-        # RENDERING 3D BUST (STILE ORIGINALE MCPVP / MINETIERS)
-        # Usiamo la risoluzione 512px per una definizione perfetta su Discord, identica allo screenshot.
-        skin_url = f"https://visage.surreal.host/bust/512/{clean_mc_name}"
+        # RENDERING DI MC-HEADS (USATO DA MCTIERS / MCPVP)
+        # Ottiene la skin 3D intera ad alta risoluzione (512px).
+        # Il parametro "?width=512" forza Discord ad evitare la cache e a caricare l'immagine reale.
+        skin_url = f"https://mc-heads.net/player/{clean_mc_name}?width=512"
         
         # Embed stile MCTIERS con colore rosso perfetto (#dd2e44)
         embed = discord.Embed(
             color=0xdd2e44
         )
         embed.set_author(
-            name=f"{self.player_member.name}'s Test Results 🏆", 
+            name=f"{clean_mc_name}'s Test Results 🏆", 
             icon_url=self.player_member.display_avatar.url if self.player_member.display_avatar else None
         )
         
-        # Mostra la skin 3D sulla destra (Thumbnail) come nello screenshot originale
+        # Posiziona la skin 3D sulla destra proprio come nell'immagine del server ufficiale
         embed.set_thumbnail(url=skin_url)
         
         embed.add_field(name="Tester:", value=interaction.user.mention, inline=False)
@@ -144,7 +145,7 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         
         target_channel = discord.utils.get(guild.text_channels, name=channel_name)
         if target_channel:
-            # Tagga il player SOPRA l'embed proprio come fa l'originale dello screenshot
+            # Tagga il player sopra l'embed (MCTiers Original Style)
             msg = await target_channel.send(content=self.player_member.mention, embed=embed)
             reactions = ["👑", "🥳", "😱", "😭", "😂", "💀"]
             for emo in reactions:
