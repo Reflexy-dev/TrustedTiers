@@ -113,24 +113,28 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         prev_rank_val = self.prev_rank.value.strip()
         region_val = self.region.value.upper().strip()
         
+        # Rimuove eventuali spazi bianchi accidentali nel nome Minecraft per evitare URL corrotti
+        clean_mc_name = self.mc_name.strip()
+        
         # RENDERING 3D BUST (STILE ORIGINALE MCPVP / MINETIERS)
-        # Questo endpoint restituisce il busto 3D ombreggiato, inclinato esattamente come nello screenshot
-        skin_url = f"https://visage.surreal.host/bust/256/{self.mc_name}"
+        # Usiamo la risoluzione 512px per una definizione perfetta su Discord, identica allo screenshot.
+        skin_url = f"https://visage.surreal.host/bust/512/{clean_mc_name}"
         
         # Embed stile MCTIERS con colore rosso perfetto (#dd2e44)
         embed = discord.Embed(
             color=0xdd2e44
         )
         embed.set_author(
-            name=f"{self.mc_name}'s Test Results 🏆", 
+            name=f"{self.player_member.name}'s Test Results 🏆", 
             icon_url=self.player_member.display_avatar.url if self.player_member.display_avatar else None
         )
-        # Mostra la skin 3D sulla destra come nello screenshot originale
+        
+        # Mostra la skin 3D sulla destra (Thumbnail) come nello screenshot originale
         embed.set_thumbnail(url=skin_url)
         
         embed.add_field(name="Tester:", value=interaction.user.mention, inline=False)
         embed.add_field(name="Region:", value=region_val, inline=False)
-        embed.add_field(name="Username:", value=f"{self.mc_name}", inline=False)
+        embed.add_field(name="Username:", value=f"{clean_mc_name}", inline=False)
         embed.add_field(name="Previous Rank:", value=prev_rank_val, inline=False)
         embed.add_field(name="Rank Earned:", value=rank_earned, inline=False)
         
