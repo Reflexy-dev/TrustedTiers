@@ -113,11 +113,12 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         prev_rank_val = self.prev_rank.value.strip()
         region_val = self.region.value.upper().strip()
         
-        # Pulisce l'username Minecraft inserito
+        # Estrae e pulisce il nome Minecraft inserito nel form
         clean_mc_name = self.mc_name.strip()
         
-        # USA CRAFATAR BUST: Stessa posa 3D identica allo screenshot, ma ultra stabile e veloce
-        skin_url = f"https://crafatar.com/renders/body/{clean_mc_name}?size=512&overlay"
+        # API di MC-Heads corretta per generare la skin 3D ad alta definizione (busto/corpo intero)
+        # Utilizza il nome Minecraft verificato del player per recuperare l'avatar personalizzato
+        skin_url = f"https://mc-heads.net/body/{clean_mc_name}/512.png"
         
         # Embed stile MCTIERS con colore rosso perfetto (#dd2e44)
         embed = discord.Embed(
@@ -128,7 +129,7 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
             icon_url=self.player_member.display_avatar.url if self.player_member.display_avatar else None
         )
         
-        # Posiziona la skin 3D ruotata sulla destra dell'embed, identica allo screenshot
+        # Mostra la skin 3D personalizzata sulla destra
         embed.set_thumbnail(url=skin_url)
         
         embed.add_field(name="Tester:", value=interaction.user.mention, inline=False)
@@ -143,7 +144,7 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         
         target_channel = discord.utils.get(guild.text_channels, name=channel_name)
         if target_channel:
-            # Tagga il player SOPRA l'embed proprio come fa l'originale dello screenshot
+            # Menziona l'utente sopra l'embed per generare la notifica
             msg = await target_channel.send(content=self.player_member.mention, embed=embed)
             reactions = ["👑", "🥳", "😱", "😭", "😂", "💀"]
             for emo in reactions:
@@ -152,10 +153,10 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
                 except Exception: 
                     pass
         
-        # Applica il cooldown di 7 giorni
+        # Imposta il Cooldown di 7 giorni
         cooldowns[self.player_member.id] = datetime.utcnow() + timedelta(days=7)
 
-        # Ruolo automatico
+        # Gestione dei ruoli automatica
         role_name = f"{rank_earned} {self.gamemode}"
         role = discord.utils.get(guild.roles, name=role_name)
         if not role:
@@ -169,7 +170,7 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
             except Exception: 
                 pass
 
-        # Chiude la stanza privata di match
+        # Cancella il canale temporaneo privato del match
         match_channel = guild.get_channel(self.ticket_channel_id)
         if match_channel:
             try: 
@@ -258,7 +259,7 @@ class StaffControlView(discord.ui.View):
         if not player_member:
             await interaction.response.send_message("⚠️ Player left the server. Skipped.", ephemeral=True)
             refreshed_embed = generate_queue_embed(self.gamemode)
-            await interaction.response.edit_message(refreshed_embed, view=self)
+            await interaction.response.edit_message(embed=refreshed_embed, view=self)
             return
 
         try:
@@ -300,7 +301,7 @@ class StaffControlView(discord.ui.View):
 
         active_testers[self.gamemode] = None
         refreshed_embed = generate_queue_embed(self.gamemode)
-        await interaction.response.edit_message(refreshed_embed, view=self)
+        await interaction.response.edit_message(embed=refreshed_embed, view=self)
 
 
 # --- MINECRAFT REGISTRATION MODAL ---
