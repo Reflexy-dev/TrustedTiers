@@ -2,6 +2,7 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 import os
+import aiohttp  # <--- Gestisce il recupero dell'UUID di Minecraft in modo asincrono
 from flask import Flask
 from threading import Thread
 from datetime import datetime, timedelta
@@ -113,12 +114,23 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         prev_rank_val = self.prev_rank.value.strip()
         region_val = self.region.value.upper().strip()
         
-        # Estrae e pulisce il nome Minecraft inserito nel form
         clean_mc_name = self.mc_name.strip()
         
-        # API 3D ISOMETRICA PROFESSIONALE (Usata dai bot di tierlist ufficiali)
-        # Visage genera la prospettiva 3D dinamica con inclinazione perfetta
-        skin_url = f"https://visage.surreal.tech/full/512/{clean_mc_name}.png"
+        # Busto di Steve di fallback se qualcosa va storto
+        skin_url = "https://render.crafty.gg/3d/bust/866125ad5e2b474e987654b6138d4f45"
+        
+        # Recuperiamo l'UUID e creiamo il link per il BUSTO 3D (esattamente come nel tuo link!)
+        async with aiohttp.ClientSession() as session:
+            try:
+                async with session.get(f"https://api.mojang.com/users/profiles/minecraft/{clean_mc_name}") as r:
+                    if r.status == 200:
+                        data = await r.json()
+                        uuid = data.get("id")
+                        # USA IL BUSTO 3D DI CRAFTY.GG (Stile ufficiale MCTiers)
+                        skin_url = f"https://render.crafty.gg/3d/bust/{uuid}"
+            except Exception:
+                # Fallback d'emergenza
+                skin_url = f"https://mc-heads.net/player/{clean_mc_name}/512.png"
         
         # Embed stile MCTIERS con colore rosso perfetto (#dd2e44)
         embed = discord.Embed(
@@ -131,10 +143,10 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
             icon_url=guild.icon.url if guild.icon else None
         )
         
-        # Posiziona la skin 3D isometrica a destra dell'embed come thumbnail
+        # Posiziona il busto 3D isometrico a destra come thumbnail
         embed.set_thumbnail(url=skin_url)
         
-        # Campi del test (ognuno va a capo grazie a inline=False)
+        # Campi del test (incolonnati verticalmente)
         embed.add_field(name="Tester:", value=interaction.user.mention, inline=False)
         embed.add_field(name="Region:", value=region_val, inline=False)
         embed.add_field(name="Username:", value=f"{clean_mc_name}", inline=False)
@@ -147,7 +159,6 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         
         target_channel = discord.utils.get(guild.text_channels, name=channel_name)
         if target_channel:
-            # Menziona l'utente sopra l'embed per generare la notifica
             msg = await target_channel.send(content=self.player_member.mention, embed=embed)
             reactions = ["👑", "🥳", "😱", "😭", "😂", "💀"]
             for emo in reactions:
