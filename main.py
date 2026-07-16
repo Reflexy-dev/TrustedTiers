@@ -116,22 +116,24 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         # Estrae e pulisce il nome Minecraft inserito nel form
         clean_mc_name = self.mc_name.strip()
         
-        # API di MC-Heads corretta per generare la skin 3D ad alta definizione (busto/corpo intero)
-        # Utilizza il nome Minecraft verificato del player per recuperare l'avatar personalizzato
-        skin_url = f"https://mc-heads.net/body/{clean_mc_name}/512.png"
+        # API di MC-Heads impostata su /player/ per generare la skin 3D con posa dinamica/angolata
+        skin_url = f"https://mc-heads.net/player/{clean_mc_name}/512.png"
         
         # Embed stile MCTIERS con colore rosso perfetto (#dd2e44)
         embed = discord.Embed(
             color=0xdd2e44
         )
+        
+        # Mostra in alto a sinistra il nome e l'icona del server Discord (come nello screenshot)
         embed.set_author(
-            name=f"{clean_mc_name}'s Test Results 🏆", 
-            icon_url=self.player_member.display_avatar.url if self.player_member.display_avatar else None
+            name=f"{guild.name}'s Test Results 🏆", 
+            icon_url=guild.icon.url if guild.icon else None
         )
         
-        # Mostra la skin 3D personalizzata sulla destra
+        # Posiziona la skin 3D a destra dell'embed come thumbnail
         embed.set_thumbnail(url=skin_url)
         
+        # Campi del test (ognuno va a capo grazie a inline=False)
         embed.add_field(name="Tester:", value=interaction.user.mention, inline=False)
         embed.add_field(name="Region:", value=region_val, inline=False)
         embed.add_field(name="Username:", value=f"{clean_mc_name}", inline=False)
