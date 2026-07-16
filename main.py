@@ -116,8 +116,9 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         # Estrae e pulisce il nome Minecraft inserito nel form
         clean_mc_name = self.mc_name.strip()
         
-        # API di MC-Heads impostata su /player/ per generare la skin 3D con posa dinamica/angolata
-        skin_url = f"https://mc-heads.net/player/{clean_mc_name}/512.png"
+        # API 3D ISOMETRICA PROFESSIONALE (Usata dai bot di tierlist ufficiali)
+        # Visage genera la prospettiva 3D dinamica con inclinazione perfetta
+        skin_url = f"https://visage.surreal.tech/full/512/{clean_mc_name}.png"
         
         # Embed stile MCTIERS con colore rosso perfetto (#dd2e44)
         embed = discord.Embed(
@@ -130,7 +131,7 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
             icon_url=guild.icon.url if guild.icon else None
         )
         
-        # Posiziona la skin 3D a destra dell'embed come thumbnail
+        # Posiziona la skin 3D isometrica a destra dell'embed come thumbnail
         embed.set_thumbnail(url=skin_url)
         
         # Campi del test (ognuno va a capo grazie a inline=False)
