@@ -70,7 +70,7 @@ def get_remaining_cooldown(member_id):
     return None
 
 def generate_queue_embed(gamemode):
-    # MCTIERS Style Board Generation
+    # MCTIERS Style Board Generation matching the image layout
     title_status = "Tester(s) Available!" if active_testers[gamemode] else "Waiting for Tester(s)..."
     
     embed = discord.Embed(
@@ -227,36 +227,30 @@ class TesterPrivateEvalView(discord.ui.View):
         ))
 
 
-# --- BOARD CONTROL PANEL FOR STAFF & PLAYERS ---
+# --- BOARD CONTROL PANEL FOR STAFF ---
 class StaffControlView(discord.ui.View):
     def __init__(self, gamemode: str):
         super().__init__(timeout=None)
         self.gamemode = gamemode
         
-        self.join_queue_btn.custom_id = f"p_join_queue_{gamemode.lower()}"
         self.join_tester_btn.custom_id = f"p_join_btn_{gamemode.lower()}"
         self.next_player_btn.custom_id = f"p_next_btn_{gamemode.lower()}"
         self.leave_session_btn.custom_id = f"p_leave_btn_{gamemode.lower()}"
 
-    def is_staff(self, interaction: discord.Interaction) -> bool:
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
         is_owner_guild = interaction.user.id == interaction.guild.owner_id
         is_admin = interaction.user.guild_permissions.administrator
         specific_role_needed = f"Tester {self.gamemode}"
         has_role = any(role.name == specific_role_needed for role in interaction.user.roles)
         is_owner_role = any(role.name == "Owner" for role in interaction.user.roles)
-        return has_role or is_owner_role or is_owner_guild or is_admin
+        
+        if not (has_role or is_owner_role or is_owner_guild or is_admin):
+            await interaction.response.send_message(f"❌ You need the `{specific_role_needed}` or `Owner` role to use this board.", ephemeral=True)
+            return False
+        return True
 
-    @discord.ui.button(label="Join Queue", style=discord.ButtonStyle.blurple)
-    async def join_queue_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Accessible by anyone to register directly from the board channel!
-        await interaction.response.send_modal(MinecraftNameModal(self.gamemode))
-
-    @discord.ui.button(label="Join as Tester", style=discord.ButtonStyle.grey)
+    @discord.ui.button(label="Join as Tester", style=discord.ButtonStyle.blurple)
     async def join_tester_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not self.is_staff(interaction):
-            await interaction.response.send_message("❌ This action is restricted to Staff Members.", ephemeral=True)
-            return
-            
         if active_testers[self.gamemode] is not None:
             await interaction.response.send_message("❌ A tester is already active on this board!", ephemeral=True)
             return
@@ -267,10 +261,6 @@ class StaffControlView(discord.ui.View):
 
     @discord.ui.button(label="Next Player", style=discord.ButtonStyle.green)
     async def next_player_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not self.is_staff(interaction):
-            await interaction.response.send_message("❌ This action is restricted to Staff Members.", ephemeral=True)
-            return
-
         is_owner_guild = interaction.user.id == interaction.guild.owner_id
         is_admin = interaction.user.guild_permissions.administrator
 
@@ -322,10 +312,6 @@ class StaffControlView(discord.ui.View):
 
     @discord.ui.button(label="Leave Session", style=discord.ButtonStyle.red)
     async def leave_session_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not self.is_staff(interaction):
-            await interaction.response.send_message("❌ This action is restricted to Staff Members.", ephemeral=True)
-            return
-
         is_owner_guild = interaction.user.id == interaction.guild.owner_id
         is_admin = interaction.user.guild_permissions.administrator
 
@@ -505,7 +491,6 @@ async def leave(interaction: discord.Interaction):
     found = False
     target_gm = None
 
-    # Check all gamemode queues
     for gm in GAMEMODES:
         player_entry = next((p for p in queues[gm] if p['user_id'] == user_id), None)
         if player_entry:
@@ -518,7 +503,6 @@ async def leave(interaction: discord.Interaction):
         await interaction.response.send_message("❌ You are not in any testing queue.", ephemeral=True)
         return
 
-    # Reset permissions for the waitlist channel
     waitlist_channel = discord.utils.get(guild.text_channels, name=f"waitlist-{target_gm.lower()}")
     if waitlist_channel:
         try:
@@ -526,7 +510,6 @@ async def leave(interaction: discord.Interaction):
         except Exception:
             pass
 
-    # Update visual board
     await update_board_message(guild, target_gm)
     await interaction.response.send_message(f"✅ You have successfully left the **{target_gm}** queue.", ephemeral=True)
 
