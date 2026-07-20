@@ -34,6 +34,7 @@ GAMEMODE_EMOJIS = {
 }
 
 GAMEMODES = list(GAMEMODE_EMOJIS.keys())
+STAFF_LOG_CHANNEL_NAME = "tester-logs"
 
 # Global Data Structures
 queues = {gm: [] for gm in GAMEMODES}
@@ -69,15 +70,22 @@ def get_remaining_cooldown(member_id):
             del cooldowns[member_id]
     return None
 
+async def log_to_staff(guild, text):
+    log_channel = discord.utils.get(guild.text_channels, name=STAFF_LOG_CHANNEL_NAME)
+    if log_channel:
+        try:
+            await log_channel.send(f"📋 **[LOG]:** {text}")
+        except Exception:
+            pass
+
 def generate_queue_embed(gamemode):
-    # MCTIERS Style Board Generation matching the image layout
     title_status = "Tester(s) Available!" if active_testers[gamemode] else "Waiting for Tester(s)..."
     
     embed = discord.Embed(
         title=title_status,
         description=f"⚪ The queue updates automatically.\nUse `/leave` if you wish to be removed from the waitlist or queue.\n\n"
                     f"**__Queue__ ({len(queues[gamemode])}/20):**",
-        color=0x5865f2 # MCTiers Blurple Color
+        color=0x5865f2
     )
     
     queue_list = ""
@@ -193,6 +201,8 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
             try: await self.player_member.add_roles(role)
             except Exception: pass
 
+        await log_to_staff(guild, f"Tester {interaction.user.mention} evaluated {self.player_member.mention} to **{rank_earned}** on {self.gamemode}.")
+
         match_channel = guild.get_channel(self.ticket_channel_id)
         if match_channel:
             try: await match_channel.delete()
@@ -258,6 +268,7 @@ class StaffControlView(discord.ui.View):
         active_testers[self.gamemode] = interaction.user.id
         new_embed = generate_queue_embed(self.gamemode)
         await interaction.response.edit_message(embed=new_embed, view=self)
+        await log_to_staff(interaction.guild, f"{interaction.user.mention} signed in as the Active Tester for **{self.gamemode}**.")
 
     @discord.ui.button(label="Next Player", style=discord.ButtonStyle.green)
     async def next_player_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -307,6 +318,7 @@ class StaffControlView(discord.ui.View):
             ephemeral=True
         )
         
+        await log_to_staff(guild, f"Tester {interaction.user.mention} moved to next player: Opened match room {match_room.mention} with {player_member.mention}.")
         refreshed_embed = generate_queue_embed(self.gamemode)
         await interaction.message.edit(embed=refreshed_embed, view=self)
 
@@ -322,6 +334,7 @@ class StaffControlView(discord.ui.View):
         active_testers[self.gamemode] = None
         refreshed_embed = generate_queue_embed(self.gamemode)
         await interaction.response.edit_message(embed=refreshed_embed, view=self)
+        await log_to_staff(interaction.guild, f"{interaction.user.mention} stepped down as the Active Tester for **{self.gamemode}**.")
 
 
 # --- MINECRAFT REGISTRATION MODAL ---
@@ -339,6 +352,11 @@ class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
         is_owner = interaction.user.id == guild.owner_id or any(role.name == "Owner" for role in interaction.user.roles)
         is_admin = interaction.user.guild_permissions.administrator
         
+        # RULE: HARD CAPACITY CAP AT 20 PLAYERS
+        if len(queues[self.gamemode]) >= 20:
+            await interaction.response.send_message("❌ This queue is full! (Maximum limit of 20 players reached). Please try again later.", ephemeral=True)
+            return
+
         if is_user_in_any_queue(user_id) and not (is_owner or is_admin):
             await interaction.response.send_message("❌ You are already queued up for another test!", ephemeral=True)
             return
@@ -364,9 +382,7 @@ class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
         if waitlist_channel:
             await waitlist_channel.set_permissions(interaction.user, read_messages=True, send_messages=False)
             await update_board_message(guild, self.gamemode)
-            await interaction.followup.send(f"✅ Success! You have been added to the board. Check your assigned waitlist channel: {waitlist_channel.mention}", ephemeral=True)
-        else:
-            await interaction.followup.send(f"✅ Registered for {self.gamemode}! (Warning: `#waitlist-{self.gamemode.lower()}` channel not found on server)", ephemeral=True)
+
 
 class GamemodeSelect(discord.ui.Select):
     def __init__(self):
@@ -480,6 +496,7 @@ async def remove_player(interaction: discord.Interaction, player: discord.Member
             pass
             
     await update_board_message(guild, matched_gm)
+    await log_to_staff(guild, f"{interaction.user.mention} manually forced {player.mention} out of the **{matched_gm}** queue.")
     await interaction.response.send_message(f"✅ Successfully removed {player.mention} from the **{matched_gm}** queue.")
 
 
@@ -510,7 +527,17 @@ async def leave(interaction: discord.Interaction):
         except Exception:
             pass
 
+    # AUTOMATION: Automatically find and wipe any open private match room if they run /leave mid-session
+    for channel in guild.text_channels:
+        if channel.name == f"🔒-match-{target_gm.lower()}-{interaction.user.name.lower()}":
+            try:
+                await channel.delete()
+                await log_to_staff(guild, f"Closed open match room {channel.name} because player dropped via `/leave`.")
+            except Exception:
+                pass
+
     await update_board_message(guild, target_gm)
+    await log_to_staff(guild, f"Player {interaction.user.mention} used `/leave` to abandon the **{target_gm}** queue.")
     await interaction.response.send_message(f"✅ You have successfully left the **{target_gm}** queue.", ephemeral=True)
 
 keep_alive()
