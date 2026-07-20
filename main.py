@@ -240,8 +240,11 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         role_name = f"{rank_earned} {self.gamemode}"
         role = discord.utils.get(guild.roles, name=role_name)
         if not role:
-            try: role = await guild.create_role(name=role_name, mentionable=True, color=discord.Color.light_gray())
-            except Exception: pass
+            try: 
+                # FIXED: Roles are now automatically created with clean WHITE/DEFAULT color
+                role = await guild.create_role(name=role_name, mentionable=True, color=discord.Color.default())
+            except Exception: 
+                pass
         if role:
             try: await self.player_member.add_roles(role)
             except Exception: pass
@@ -426,7 +429,7 @@ class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
         if active_testers[self.gamemode] is None:
             asyncio.create_task(afk_queue_remover(user_id, self.gamemode, guild.id))
         
-        waitlist_channel = discord.utils.get(guild.text_channels, name=f"waitlist-{self.gamemode.lower()}")
+        waitlist_channel = discord.utils.get(guild.text_channels, name=f"waitlist-{gamemode.lower()}")
         
         if waitlist_channel:
             await waitlist_channel.set_permissions(interaction.user, read_messages=True, send_messages=False)
@@ -461,8 +464,6 @@ async def on_ready():
         for gm in GAMEMODES:
             bot.add_view(StaffControlView(gm))
         bot.add_view(MainTicketView())
-        
-        # FORZIAMO IL SYNC GLOBALE AD OGNI AVVIO PER SBLOCCARE /LEAVE SUBITO
         await bot.tree.sync()
         print("Slash commands & Persistent Views synced successfully!")
     except Exception as e:
@@ -558,7 +559,6 @@ async def remove_player(interaction: discord.Interaction, player: discord.Member
     await interaction.response.send_message(f"✅ Successfully removed {player.mention} from the **{matched_gm}** queue.")
 
 
-# --- QUESTO È IL COMANDO /LEAVE ---
 @bot.tree.command(name="leave", description="Leave your current testing queue instantly")
 async def leave(interaction: discord.Interaction):
     user_id = interaction.user.id
