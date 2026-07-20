@@ -4,6 +4,7 @@ from discord import app_commands
 import os
 import aiohttp
 import asyncio
+import json
 from flask import Flask
 from threading import Thread
 from datetime import datetime, timedelta
@@ -35,11 +36,48 @@ GAMEMODE_EMOJIS = {
 
 GAMEMODES = list(GAMEMODE_EMOJIS.keys())
 STAFF_LOG_CHANNEL_NAME = "tester-logs"
+DB_FILE = "database.json"
 
 # Global Data Structures
 queues = {gm: [] for gm in GAMEMODES}
 cooldowns = {}
 active_testers = {gm: None for gm in GAMEMODES}
+
+# --- DATABASE SYSTEM (SAVE & LOAD) ---
+def save_data():
+    try:
+        data = {
+            "queues": queues,
+            "cooldowns": {str(k): v.isoformat() for k, v in cooldowns.items()}
+        }
+        with open(DB_FILE, "w") as f:
+            json.dump(data, f, indent=4)
+    except Exception as e:
+        print(f"Error saving database: {e}")
+
+def load_data():
+    global queues, cooldowns
+    if os.path.exists(DB_FILE):
+        try:
+            with open(DB_FILE, "r") as f:
+                data = json.load(f)
+                
+                # Load queues
+                loaded_queues = data.get("queues", {})
+                for gm in GAMEMODES:
+                    if gm in loaded_queues:
+                        queues[gm] = loaded_queues[gm]
+                
+                # Load cooldowns and filter expired ones
+                loaded_cooldowns = data.get("cooldowns", {})
+                now = datetime.utcnow()
+                for k, v in loaded_cooldowns.items():
+                    exp_time = datetime.fromisoformat(v)
+                    if now < exp_time:
+                        cooldowns[int(k)] = exp_time
+            print("Database loaded successfully!")
+        except Exception as e:
+            print(f"Error loading database: {e}")
 
 def is_user_in_any_queue(user_id):
     for gm in GAMEMODES:
@@ -68,6 +106,7 @@ def get_remaining_cooldown(member_id):
             return ", ".join(parts) if parts else "a few seconds"
         else:
             del cooldowns[member_id]
+            save_data()
     return None
 
 async def log_to_staff(guild, text):
@@ -121,6 +160,7 @@ async def afk_queue_remover(user_id, gamemode, guild_id):
         player_entry = next((p for p in queues[gamemode] if p['user_id'] == user_id), None)
         if player_entry and active_testers[gamemode] is None:
             queues[gamemode].remove(player_entry)
+            save_data()
             await update_board_message(guild, gamemode)
             
             member = guild.get_member(user_id)
@@ -168,7 +208,7 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
             except Exception:
                 skin_url = f"https://mc-heads.net/player/{clean_mc_name}/512.png"
         
-        embed = discord.Embed(color=0xdd2e44)
+        embed = discord.Embed(color=0x5865f2)
         embed.set_author(name=f"{guild.name}'s Test Results 🏆", icon_url=guild.icon.url if guild.icon else None)
         embed.set_thumbnail(url=skin_url)
         
@@ -191,6 +231,7 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
                 except Exception: pass
         
         cooldowns[self.player_member.id] = datetime.utcnow() + timedelta(days=7)
+        save_data()
 
         role_name = f"{rank_earned} {self.gamemode}"
         role = discord.utils.get(guild.roles, name=role_name)
@@ -284,6 +325,7 @@ class StaffControlView(discord.ui.View):
             return
 
         current_player_data = queues[self.gamemode].pop(0)
+        save_data()
         guild = interaction.guild
         player_member = guild.get_member(current_player_data['user_id'])
 
@@ -352,7 +394,6 @@ class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
         is_owner = interaction.user.id == guild.owner_id or any(role.name == "Owner" for role in interaction.user.roles)
         is_admin = interaction.user.guild_permissions.administrator
         
-        # RULE: HARD CAPACITY CAP AT 20 PLAYERS
         if len(queues[self.gamemode]) >= 20:
             await interaction.response.send_message("❌ This queue is full! (Maximum limit of 20 players reached). Please try again later.", ephemeral=True)
             return
@@ -373,6 +414,7 @@ class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
             'mc_name': self.mc_name.value
         }
         queues[self.gamemode].append(player_data)
+        save_data()
         
         if active_testers[self.gamemode] is None:
             asyncio.create_task(afk_queue_remover(user_id, self.gamemode, guild.id))
@@ -390,7 +432,15 @@ class GamemodeSelect(discord.ui.Select):
         super().__init__(placeholder="Choose a gamemode to test...", options=options, custom_id="main_gamemode_select")
         
     async def callback(self, interaction: discord.Interaction):
+        # Open the Minecraft Username input pop-up
         await interaction.response.send_modal(MinecraftNameModal(self.values[0]))
+        
+        # Reset the select menu back to original state immediately so it doesn't get stuck on one gamemode name
+        try:
+            new_view = MainTicketView()
+            await interaction.message.edit(view=new_view)
+        except Exception:
+            pass
 
 class MainTicketView(discord.ui.View):
     def __init__(self):
@@ -401,6 +451,7 @@ class MainTicketView(discord.ui.View):
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user.name}")
+    load_data()  # Load saved queues and cooldowns on startup!
     try:
         for gm in GAMEMODES:
             bot.add_view(StaffControlView(gm))
@@ -417,7 +468,7 @@ async def setup_panel(interaction: discord.Interaction):
     embed = discord.Embed(
         title="⚔️ Request a Tierlist Test",
         description="Select the gamemode you want to be tested in from the dropdown menu below to join the global waitlist.",
-        color=discord.Color.blue()
+        color=0x5865f2
     )
     await interaction.response.send_message(embed=embed, view=MainTicketView())
 
@@ -460,7 +511,6 @@ async def setup_board(interaction: discord.Interaction, gamemode: str):
     await interaction.followup.send(f"✅ Board initialized and channel permissions set up in {waitlist_channel.mention}", ephemeral=True)
 
 
-# --- SLASH COMMAND TO REMOVE A PLAYER MANUALLY ---
 @bot.tree.command(name="remove_player", description="Manually remove a specific player from a gamemode queue")
 @app_commands.describe(player="The Discord member to remove", gamemode="The gamemode queue to remove them from")
 async def remove_player(interaction: discord.Interaction, player: discord.Member, gamemode: str):
@@ -487,6 +537,7 @@ async def remove_player(interaction: discord.Interaction, player: discord.Member
         return
         
     queues[matched_gm].remove(player_entry)
+    save_data()
     
     waitlist_channel = discord.utils.get(guild.text_channels, name=f"waitlist-{matched_gm.lower()}")
     if waitlist_channel:
@@ -500,7 +551,6 @@ async def remove_player(interaction: discord.Interaction, player: discord.Member
     await interaction.response.send_message(f"✅ Successfully removed {player.mention} from the **{matched_gm}** queue.")
 
 
-# --- GLOBAL /LEAVE COMMAND FOR PLAYERS ---
 @bot.tree.command(name="leave", description="Leave your current testing queue instantly")
 async def leave(interaction: discord.Interaction):
     user_id = interaction.user.id
@@ -512,6 +562,7 @@ async def leave(interaction: discord.Interaction):
         player_entry = next((p for p in queues[gm] if p['user_id'] == user_id), None)
         if player_entry:
             queues[gm].remove(player_entry)
+            save_data()
             target_gm = gm
             found = True
             break
@@ -527,7 +578,6 @@ async def leave(interaction: discord.Interaction):
         except Exception:
             pass
 
-    # AUTOMATION: Automatically find and wipe any open private match room if they run /leave mid-session
     for channel in guild.text_channels:
         if channel.name == f"🔒-match-{target_gm.lower()}-{interaction.user.name.lower()}":
             try:
