@@ -106,17 +106,13 @@ async def log_to_staff(guild, text):
 
 def generate_queue_embed(gamemode):
     title_status = "Tester(s) Available!" if active_testers[gamemode] else "Waiting for Tester(s)..."
-    
     queue_list = ""
     if not queues[gamemode]:
         queue_list = "*Empty*"
     else:
         for idx, player in enumerate(queues[gamemode], start=1):
             queue_list += f"{idx}. <@{player['user_id']}>\n"
-
     tester_mention = f"<@{active_testers[gamemode]}>" if active_testers[gamemode] else "*None*"
-    
-    # Rimosso il field intermedio vuoto per incollare il testo direttamente sotto i rispettivi titoli
     embed = discord.Embed(
         title=title_status,
         description=f"⚪ The queue updates automatically.\nUse `/leave` if you wish to be removed from the waitlist or queue.\n\n"
@@ -157,11 +153,9 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         self.mc_name = mc_name
         self.gamemode = gamemode
         self.ticket_channel_id = ticket_channel_id
-        
         self.region = discord.ui.TextInput(label="Region", placeholder="e.g. EU, NA", default="EU", required=True)
         self.prev_rank = discord.ui.TextInput(label="Previous Rank", placeholder="e.g. Unranked", default="Unranked", required=True)
         self.new_rank = discord.ui.TextInput(label="Rank Earned", placeholder="e.g. High Tier 2", required=True)
-        
         self.add_item(self.region)
         self.add_item(self.prev_rank)
         self.add_item(self.new_rank)
@@ -172,10 +166,8 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         rank_earned = self.new_rank.value.strip()
         prev_rank_val = self.prev_rank.value.strip()
         region_val = self.region.value.upper().strip()
-        
         clean_mc_name = self.mc_name.strip()
         skin_url = "https://render.crafty.gg/3d/bust/866125ad5e2b474e987654b6138d4f45"
-        
         async with aiohttp.ClientSession() as session:
             try:
                 async with session.get(f"https://api.mojang.com/users/profiles/minecraft/{clean_mc_name}") as r:
@@ -189,7 +181,6 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         embed = discord.Embed(color=0x5865f2)
         embed.set_author(name=f"{guild.name}'s Test Results 🏆", icon_url=guild.icon.url if guild.icon else None)
         embed.set_thumbnail(url=skin_url)
-        
         embed.add_field(name="Tester:", value=interaction.user.mention, inline=False)
         embed.add_field(name="Region:", value=region_val, inline=False)
         embed.add_field(name="Username:", value=f"{clean_mc_name}", inline=False)
@@ -203,17 +194,21 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         target_channel = discord.utils.get(guild.text_channels, name=channel_name)
         if target_channel:
             msg = await target_channel.send(content=self.player_member.mention, embed=embed)
-            reactions = ["👑", "🥳", "😱", "😭", "😂", "💀"]
-            for emo in reactions:
+            for emo in ["👑", "🥳", "😱", "😭", "😂", "💀"]:
                 try: await msg.add_reaction(emo)
                 except Exception: pass
         
         player_entry = next((p for p in queues[self.gamemode] if p['user_id'] == self.player_member.id), None)
         if player_entry:
             queues[self.gamemode].remove(player_entry)
-            
         cooldowns[self.player_member.id] = datetime.utcnow() + timedelta(days=7)
         save_data()
+
+        # Rimuovi ruoli precedenti della stessa gamemode
+        for role in self.player_member.roles:
+            if role.name.endswith(f" {self.gamemode}"):
+                try: await self.player_member.remove_roles(role)
+                except: pass
 
         role_name = f"{rank_earned} {self.gamemode}"
         role = discord.utils.get(guild.roles, name=role_name)
@@ -226,7 +221,6 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
 
         await update_board_message(guild, self.gamemode)
         await log_to_staff(guild, f"Tester {interaction.user.mention} evaluated {self.player_member.mention} to **{rank_earned}**.")
-
         match_channel = guild.get_channel(self.ticket_channel_id)
         if match_channel:
             try: await match_channel.delete()
@@ -242,12 +236,8 @@ class TesterPrivateEvalView(discord.ui.View):
 
     @discord.ui.button(label="⭐ Open Tier Evaluation", style=discord.ButtonStyle.green, custom_id="tester_eval_secret_btn")
     async def open_eval_modal(self, interaction: discord.Interaction, button: discord.ui.Button):
-        is_owner_guild = interaction.user.id == interaction.guild.owner_id
-        is_admin = interaction.user.guild_permissions.administrator
-        has_owner_role = any(role.name == "Owner" for role in interaction.user.roles)
         has_tester_role = any(role.name == f"Tester {self.gamemode}" for role in interaction.user.roles)
-        
-        if not (has_tester_role or has_owner_role or is_owner_guild or is_admin):
+        if not (has_tester_role or interaction.user.guild_permissions.administrator):
             await interaction.response.send_message("❌ Unauthorized staff!", ephemeral=True)
             return
         await interaction.response.send_modal(FastResultModal(self.player_member, self.mc_name, self.gamemode, self.channel_id))
@@ -261,11 +251,8 @@ class StaffControlView(discord.ui.View):
         self.leave_session_btn.custom_id = f"p_leave_btn_{gamemode.lower()}"
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        is_owner_guild = interaction.user.id == interaction.guild.owner_id
-        is_admin = interaction.user.guild_permissions.administrator
         has_role = any(role.name == f"Tester {self.gamemode}" for role in interaction.user.roles)
-        is_owner_role = any(role.name == "Owner" for role in interaction.user.roles)
-        if not (has_role or is_owner_role or is_owner_guild or is_admin):
+        if not (has_role or interaction.user.guild_permissions.administrator):
             await interaction.response.send_message("❌ Unauthorized.", ephemeral=True)
             return False
         return True
@@ -281,9 +268,7 @@ class StaffControlView(discord.ui.View):
 
     @discord.ui.button(label="Next Player", style=discord.ButtonStyle.green)
     async def next_player_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        is_owner_guild = interaction.user.id == interaction.guild.owner_id
-        is_admin = interaction.user.guild_permissions.administrator
-        if active_testers[self.gamemode] != interaction.user.id and not (is_owner_guild or is_admin):
+        if active_testers[self.gamemode] != interaction.user.id and not interaction.user.guild_permissions.administrator:
             await interaction.response.send_message("❌ Join first.", ephemeral=True)
             return
         if not queues[self.gamemode]:
@@ -293,7 +278,6 @@ class StaffControlView(discord.ui.View):
         current_player_data = queues[self.gamemode][0]
         guild = interaction.guild
         player_member = guild.get_member(current_player_data['user_id'])
-
         if not player_member:
             queues[self.gamemode].pop(0)
             save_data()
@@ -301,37 +285,29 @@ class StaffControlView(discord.ui.View):
             return
 
         expected_room_name = f"🔒-match-{self.gamemode.lower()}-{player_member.name}".lower()
-        room_exists = discord.utils.get(guild.text_channels, name=expected_room_name)
-        if room_exists:
+        if discord.utils.get(guild.text_channels, name=expected_room_name):
             await interaction.response.send_message("❌ Channel already exists.", ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=True)
-
         category = discord.utils.get(guild.categories, name="🎯Tierlist")
         if not category: category = await guild.create_category("🎯Tierlist")
 
+        # Overwrite per garantire che solo lo staff e il player vedano
         private_overwrites = {
             guild.default_role: discord.PermissionOverwrite(read_messages=False),
             interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
             player_member: discord.PermissionOverwrite(read_messages=True, send_messages=True)
         }
         match_room = await guild.create_text_channel(name=expected_room_name, category=category, overwrites=private_overwrites)
-        
         eval_view = TesterPrivateEvalView(player_member, current_player_data['mc_name'], self.gamemode, match_room.id)
-        # Invia l'interfaccia di controllo direttamente nel canale di match appena creato
-        await match_room.send(
-            content=f"⚡ **Match Room Available:** {player_member.mention} vs {interaction.user.mention}\nUse the button below to grade the tier when completed.",
-            view=eval_view
-        )
+        await match_room.send(content=f"⚡ **Match Room:** {player_member.mention} vs {interaction.user.mention}", view=eval_view)
         await log_to_staff(guild, f"Tester {interaction.user.mention} opened match room {match_room.mention} with {player_member.mention}.")
         await interaction.message.edit(embed=generate_queue_embed(self.gamemode), view=self)
 
     @discord.ui.button(label="Leave Session", style=discord.ButtonStyle.red)
     async def leave_session_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        is_owner_guild = interaction.user.id == interaction.guild.owner_id
-        is_admin = interaction.user.guild_permissions.administrator
-        if active_testers[self.gamemode] != interaction.user.id and not (is_owner_guild or is_admin):
+        if active_testers[self.gamemode] != interaction.user.id and not interaction.user.guild_permissions.administrator:
             await interaction.response.send_message("❌ Not active.", ephemeral=True)
             return
         active_testers[self.gamemode] = None
@@ -340,49 +316,38 @@ class StaffControlView(discord.ui.View):
 
 class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
     mc_name = discord.ui.TextInput(label="Enter your Minecraft Username", placeholder="e.g. Stev3_", required=True)
-    
     def __init__(self, gamemode):
         super().__init__()
         self.gamemode = gamemode
 
     async def on_submit(self, interaction: discord.Interaction):
         user_id = interaction.user.id
-        guild = interaction.guild
-        is_owner = interaction.user.id == guild.owner_id or any(role.name == "Owner" for role in interaction.user.roles)
-        is_admin = interaction.user.guild_permissions.administrator
-        
         if len(queues[self.gamemode]) >= 20:
             await interaction.response.send_message("❌ Queue full.", ephemeral=True)
             return
-        if is_user_in_any_queue(user_id) and not (is_owner or is_admin):
+        if is_user_in_any_queue(user_id):
             await interaction.response.send_message("❌ Queued elsewhere.", ephemeral=True)
             return
         remaining = get_remaining_cooldown(user_id)
-        if remaining is not None and not (is_owner or is_admin):
+        if remaining is not None:
             await interaction.response.send_message(f"❌ Cooldown active: {remaining}", ephemeral=True)
             return
-                
         await interaction.response.defer(ephemeral=True)
         queues[self.gamemode].append({'user_id': user_id, 'mc_name': self.mc_name.value})
         save_data()
-        
         if active_testers[self.gamemode] is None:
-            asyncio.create_task(afk_queue_remover(user_id, self.gamemode, guild.id))
-        
-        waitlist_channel = discord.utils.get(guild.text_channels, name=f"waitlist-{self.gamemode.lower()}")
+            asyncio.create_task(afk_queue_remover(user_id, self.gamemode, interaction.guild.id))
+        waitlist_channel = discord.utils.get(interaction.guild.text_channels, name=f"waitlist-{self.gamemode.lower()}")
         if waitlist_channel:
             await waitlist_channel.set_permissions(interaction.user, read_messages=True, send_messages=False)
-            await update_board_message(guild, self.gamemode)
+            await update_board_message(interaction.guild, self.gamemode)
 
 class GamemodeSelect(discord.ui.Select):
     def __init__(self):
         options = [discord.SelectOption(label=gm, emoji=GAMEMODE_EMOJIS[gm]) for gm in GAMEMODES]
-        super().__init__(placeholder="Choose a gamemode to test...", options=options, custom_id="main_gamemode_select")
-        
+        super().__init__(placeholder="Choose a gamemode to test...", options=options)
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.send_modal(MinecraftNameModal(self.values[0]))
-        try: await interaction.message.edit(view=MainTicketView())
-        except Exception: pass
 
 class MainTicketView(discord.ui.View):
     def __init__(self):
@@ -393,111 +358,20 @@ class MainTicketView(discord.ui.View):
 async def on_ready():
     print(f"Logged in as {bot.user.name}")
     load_data()
-    try:
-        for gm in GAMEMODES: bot.add_view(StaffControlView(gm))
-        bot.add_view(MainTicketView())
-        await bot.tree.sync()
-    except Exception as e: print(f"Sync error: {e}")
+    for gm in GAMEMODES: bot.add_view(StaffControlView(gm))
+    bot.add_view(MainTicketView())
+    await bot.tree.sync()
 
 @bot.tree.command(name="setup_panel", description="Generate the main booking panel")
-@app_commands.default_permissions(administrator=True)
 async def setup_panel(interaction: discord.Interaction):
-    embed = discord.Embed(
-        title="⚔️ Request a Tierlist Test",
-        description="Select the gamemode you want to be tested in from the dropdown menu below to join the global waitlist.",
-        color=0x5865f2
-    )
-    await interaction.response.send_message(embed=embed, view=MainTicketView())
+    await interaction.response.send_message(embed=discord.Embed(title="⚔️ Request a Tierlist Test", description="Select a mode.", color=0x5865f2), view=MainTicketView())
 
-@bot.tree.command(name="setup_board", description="Create and setup the live board inside a waitlist channel")
-@app_commands.default_permissions(administrator=True)
+@bot.tree.command(name="setup_board", description="Create the live board")
 async def setup_board(interaction: discord.Interaction, gamemode: str):
-    guild = interaction.guild
-    matched_gm = next((gm for gm in GAMEMODES if gm.lower() == gamemode.lower()), None)
-    if not matched_gm: return
-
     await interaction.response.defer(ephemeral=True)
-    category = discord.utils.get(guild.categories, name="🎯Tierlist")
-    if not category: category = await guild.create_category("🎯Tierlist")
-
-    tester_role = discord.utils.get(guild.roles, name=f"Tester {matched_gm}")
-    owner_role = discord.utils.get(guild.roles, name="Owner")
-    overwrites = {guild.default_role: discord.PermissionOverwrite(read_messages=False)}
-    if tester_role: overwrites[tester_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
-    if owner_role: overwrites[owner_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
-
-    channel_name = f"waitlist-{matched_gm.lower()}"
-    waitlist_channel = discord.utils.get(guild.text_channels, name=channel_name)
-    if not waitlist_channel:
-        waitlist_channel = await guild.create_text_channel(name=channel_name, category=category, overwrites=overwrites)
-
-    await waitlist_channel.send(embed=generate_queue_embed(matched_gm), view=StaffControlView(matched_gm))
-    # Il messaggio effimero di conferma ad interazione avvenuta viene cancellato istantaneamente
+    category = discord.utils.get(interaction.guild.categories, name="🎯Tierlist") or await interaction.guild.create_category("🎯Tierlist")
+    waitlist_channel = await interaction.guild.create_text_channel(name=f"waitlist-{gamemode.lower()}", category=category)
+    await waitlist_channel.send(embed=generate_queue_embed(gamemode), view=StaffControlView(gamemode))
     await interaction.delete_original_response()
 
-@bot.tree.command(name="remove_player", description="Manually remove a specific player from a gamemode queue")
-@app_commands.describe(player="The Discord member to remove", gamemode="The gamemode queue to remove them from")
-async def remove_player(interaction: discord.Interaction, player: discord.Member, gamemode: str):
-    guild = interaction.guild
-    matched_gm = next((gm for gm in GAMEMODES if gm.lower() == gamemode.lower()), None)
-    if not matched_gm: return
-        
-    is_owner_guild = interaction.user.id == guild.owner_id
-    is_admin = interaction.user.guild_permissions.administrator
-    has_tester_role = any(role.name == f"Tester {matched_gm}" for role in interaction.user.roles)
-    has_owner_role = any(role.name == "Owner" for role in interaction.user.roles)
-    if not (has_tester_role or has_owner_role or is_owner_guild or is_admin): return
-
-    player_entry = next((p for p in queues[matched_gm] if p['user_id'] == player.id), None)
-    if not player_entry: return
-        
-    queues[matched_gm].remove(player_entry)
-    save_data()
-    
-    waitlist_channel = discord.utils.get(guild.text_channels, name=f"waitlist-{matched_gm.lower()}")
-    if waitlist_channel:
-        try: await waitlist_channel.set_permissions(player, overwrite=None)
-        except Exception: pass
-            
-    await update_board_message(guild, matched_gm)
-    await log_to_staff(guild, f"{interaction.user.mention} manually removed {player.mention} from **{matched_gm}**.")
-    await interaction.response.send_message("Done", ephemeral=True)
-    await interaction.delete_original_response()
-
-@bot.tree.command(name="leave", description="Leave your current testing queue instantly")
-async def leave(interaction: discord.Interaction):
-    user_id = interaction.user.id
-    guild = interaction.guild
-    found = False
-    target_gm = None
-
-    for gm in GAMEMODES:
-        player_entry = next((p for p in queues[gm] if p['user_id'] == user_id), None)
-        if player_entry:
-            queues[gm].remove(player_entry)
-            save_data()
-            target_gm = gm
-            found = True
-            break
-
-    if not found: return
-
-    waitlist_channel = discord.utils.get(guild.text_channels, name=f"waitlist-{target_gm.lower()}")
-    if waitlist_channel:
-        try: await waitlist_channel.set_permissions(interaction.user, overwrite=None)
-        except Exception: pass
-
-    for channel in guild.text_channels:
-        if channel.name == f"🔒-match-{target_gm.lower()}-{interaction.user.name.lower()}":
-            try:
-                await channel.delete()
-                await log_to_staff(guild, f"Closed match room {channel.name} via `/leave`.")
-            except Exception: pass
-
-    await update_board_message(guild, target_gm)
-    await log_to_staff(guild, f"Player {interaction.user.mention} left **{target_gm}** queue.")
-    await interaction.response.send_message("Left", ephemeral=True)
-    await interaction.delete_original_response()
-
-keep_alive()
 bot.run(os.environ.get("DISCORD_TOKEN"))
