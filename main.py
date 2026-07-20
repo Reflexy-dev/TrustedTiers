@@ -230,6 +230,10 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
                 try: await msg.add_reaction(emo)
                 except Exception: pass
         
+        player_entry = next((p for p in queues[self.gamemode] if p['user_id'] == self.player_member.id), None)
+        if player_entry:
+            queues[self.gamemode].remove(player_entry)
+            
         cooldowns[self.player_member.id] = datetime.utcnow() + timedelta(days=7)
         save_data()
 
@@ -242,7 +246,8 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
             try: await self.player_member.add_roles(role)
             except Exception: pass
 
-        await log_to_staff(guild, f"Tester {interaction.user.mention} evaluated {self.player_member.mention} to **{rank_earned}** on {self.gamemode}.")
+        await update_board_message(guild, self.gamemode)
+        await log_to_staff(guild, f"Tester {interaction.user.mention} evaluated {self.player_member.mention} to **{rank_earned}** on {self.gamemode} and removed them from the queue.")
 
         match_channel = guild.get_channel(self.ticket_channel_id)
         if match_channel:
@@ -324,13 +329,14 @@ class StaffControlView(discord.ui.View):
             await interaction.response.send_message("❌ The queue is currently empty!", ephemeral=True)
             return
 
-        current_player_data = queues[self.gamemode].pop(0)
-        save_data()
+        current_player_data = queues[self.gamemode][0]
         guild = interaction.guild
         player_member = guild.get_member(current_player_data['user_id'])
 
         if not player_member:
-            await interaction.response.send_message("⚠️ Player left the server. Skipped.", ephemeral=True)
+            await interaction.response.send_message("⚠️ Player left the server. Skipped and removed.", ephemeral=True)
+            queues[self.gamemode].pop(0)
+            save_data()
             refreshed_embed = generate_queue_embed(self.gamemode)
             await interaction.response.edit_message(embed=refreshed_embed, view=self)
             return
@@ -360,7 +366,8 @@ class StaffControlView(discord.ui.View):
             ephemeral=True
         )
         
-        await log_to_staff(guild, f"Tester {interaction.user.mention} moved to next player: Opened match room {match_room.mention} with {player_member.mention}.")
+        await log_to_staff(guild, f"Tester {interaction.user.mention} moved to next player: Opened match room {match_room.mention} with {player_member.mention}. Player remains listed on the board during testing.")
+        
         refreshed_embed = generate_queue_embed(self.gamemode)
         await interaction.message.edit(embed=refreshed_embed, view=self)
 
@@ -432,10 +439,8 @@ class GamemodeSelect(discord.ui.Select):
         super().__init__(placeholder="Choose a gamemode to test...", options=options, custom_id="main_gamemode_select")
         
     async def callback(self, interaction: discord.Interaction):
-        # Open the Minecraft Username input pop-up
         await interaction.response.send_modal(MinecraftNameModal(self.values[0]))
         
-        # Reset the select menu back to original state immediately so it doesn't get stuck on one gamemode name
         try:
             new_view = MainTicketView()
             await interaction.message.edit(view=new_view)
@@ -451,11 +456,13 @@ class MainTicketView(discord.ui.View):
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user.name}")
-    load_data()  # Load saved queues and cooldowns on startup!
+    load_data()
     try:
         for gm in GAMEMODES:
             bot.add_view(StaffControlView(gm))
         bot.add_view(MainTicketView())
+        
+        # FORZIAMO IL SYNC GLOBALE AD OGNI AVVIO PER SBLOCCARE /LEAVE SUBITO
         await bot.tree.sync()
         print("Slash commands & Persistent Views synced successfully!")
     except Exception as e:
@@ -551,6 +558,7 @@ async def remove_player(interaction: discord.Interaction, player: discord.Member
     await interaction.response.send_message(f"✅ Successfully removed {player.mention} from the **{matched_gm}** queue.")
 
 
+# --- QUESTO È IL COMANDO /LEAVE ---
 @bot.tree.command(name="leave", description="Leave your current testing queue instantly")
 async def leave(interaction: discord.Interaction):
     user_id = interaction.user.id
