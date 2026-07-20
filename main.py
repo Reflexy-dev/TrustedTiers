@@ -3,7 +3,7 @@ from discord.ext import commands
 from discord import app_commands
 import os
 import aiohttp
-import asyncio  # <--- AGGIUNTO: Necessario per gestire i task di pulizia AFK in background
+import asyncio
 from flask import Flask
 from threading import Thread
 from datetime import datetime, timedelta
@@ -35,7 +35,7 @@ GAMEMODE_EMOJIS = {
 
 GAMEMODES = list(GAMEMODE_EMOJIS.keys())
 
-# Strutture dati globali
+# Global Data Structures
 queues = {gm: [] for gm in GAMEMODES}
 cooldowns = {}
 active_testers = {gm: None for gm in GAMEMODES}
@@ -58,75 +58,67 @@ def get_remaining_cooldown(member_id):
             
             parts = []
             if days > 0:
-                parts.append(f"{days} giorn{'o' if days == 1 else 'i'}")
+                parts.append(f"{days} day{'s' if days != 1 else ''}")
             if hours > 0:
-                parts.append(f"{hours} or{'a' if hours == 1 else 'e'}")
+                parts.append(f"{hours} hour{'s' if hours != 1 else ''}")
             if minutes > 0:
-                parts.append(f"{minutes} minut{'o' if minutes == 1 else 'i'}")
+                parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
                 
-            return ", ".join(parts) if parts else "qualche secondo"
+            return ", ".join(parts) if parts else "a few seconds"
         else:
             del cooldowns[member_id]
     return None
 
 def generate_queue_embed(gamemode):
-    emoji = GAMEMODE_EMOJIS.get(gamemode, "❓")
-    
-    # Stato della coda visibile esteticamente
-    status = "🔴 BUSY (Tester Active)" if active_testers[gamemode] else "🟢 AVAILABLE (Waiting for Tester)"
+    # MCTIERS Style Board Generation
+    title_status = "Tester(s) Available!" if active_testers[gamemode] else "Waiting for Tester(s)..."
     
     embed = discord.Embed(
-        title=f"{emoji} {gamemode.upper()} LIVE TESTING BOARD",
-        description=f"**Status:** {status}\n┌──────────────────────────┐",
-        color=discord.Color.red() if active_testers[gamemode] else discord.Color.green()
+        title=title_status,
+        description=f"⚪ The queue updates automatically.\nUse `/leave` if you wish to be removed from the waitlist or queue.\n\n"
+                    f"**__Queue__ ({len(queues[gamemode])}/20):**",
+        color=0x5865f2 # MCTiers Blurple Color
     )
     
     queue_list = ""
     if not queues[gamemode]:
-        queue_list = "🟩 *Coda vuota. Usa il pannello per unirti!*"
+        queue_list = "*Empty*"
     else:
         for idx, player in enumerate(queues[gamemode], start=1):
-            queue_list += f"**[{idx}]** <@{player['user_id']}> — MC: `{player['mc_name']}`\n"
+            queue_list += f"{idx}. <@{player['user_id']}>\n"
             
-    tester_mention = f"<@{active_testers[gamemode]}>" if active_testers[gamemode] else "*Nessun Tester Attivo*"
+    embed.add_field(name="\u200b", value=queue_list, inline=False)
     
-    embed.add_field(name="📋 Players Waiting in Queue", value=queue_list, inline=False)
-    embed.add_field(name="🧑‍🏫 Active Tester", value=tester_mention, inline=False)
-    embed.set_footer(text="I bottoni di gestione sono visibili solo allo Staff autorizzato.")
+    tester_mention = f"1. <@{active_testers[gamemode]}>" if active_testers[gamemode] else "*None*"
+    embed.add_field(name="**Active Testers:**", value=tester_mention, inline=False)
+    
     return embed
 
 async def update_board_message(guild, gamemode):
-    """Funzione di supporto per aggiornare la bacheca ovunque vada fatto."""
     waitlist_channel = discord.utils.get(guild.text_channels, name=f"waitlist-{gamemode.lower()}")
     if waitlist_channel:
         async for message in waitlist_channel.history(limit=20):
-            if message.author == bot.user and message.embeds and "LIVE TESTING BOARD" in message.embeds[0].title:
+            if message.author == bot.user and message.embeds and ("Tester(s)" in message.embeds[0].title or "Waiting for Tester" in message.embeds[0].title):
                 refreshed_embed = generate_queue_embed(gamemode)
-                # Passiamo la view aggiornata che controlla i permessi dell'utente
                 await message.edit(embed=refreshed_embed, view=StaffControlView(gamemode))
                 break
 
 async def afk_queue_remover(user_id, gamemode, guild_id):
-    """Rimuove automaticamente il player dalla coda dopo 20 minuti se non c'è un tester attivo."""
-    # Scegli qui i minuti di tolleranza AFK (es. 20 minuti)
-    await asyncio.sleep(1200) 
-    
+    await asyncio.sleep(1200) # 20 minutes
     guild = bot.get_guild(guild_id)
     if not guild:
         return
 
-    # Controlliamo se l'utente è ancora in coda e se NON c'è ancora un tester
     if gamemode in queues:
         player_entry = next((p for p in queues[gamemode] if p['user_id'] == user_id), None)
         if player_entry and active_testers[gamemode] is None:
             queues[gamemode].remove(player_entry)
             await update_board_message(guild, gamemode)
             
-            # Notifichiamo l'utente in privato per non intasare i canali pubblici
             member = guild.get_member(user_id)
             if member:
                 try:
-                    await member.send(f"⚠️ Sei stato rimosso dalla coda **{gamemode}** di {guild.name} perché non c'era nessun Tester attivo per prenderti in carico ed eri AFK da troppo tempo.")
+                    await member.send(f"⚠️ You have been removed from the **{gamemode}** queue on {guild.name} due to inactivity (No tester took your session).")
                 except Exception:
                     pass
 
@@ -235,31 +227,36 @@ class TesterPrivateEvalView(discord.ui.View):
         ))
 
 
-# --- BOARD DI CONTROLLO PER LO STAFF ---
+# --- BOARD CONTROL PANEL FOR STAFF & PLAYERS ---
 class StaffControlView(discord.ui.View):
     def __init__(self, gamemode: str):
         super().__init__(timeout=None)
         self.gamemode = gamemode
         
+        self.join_queue_btn.custom_id = f"p_join_queue_{gamemode.lower()}"
         self.join_tester_btn.custom_id = f"p_join_btn_{gamemode.lower()}"
         self.next_player_btn.custom_id = f"p_next_btn_{gamemode.lower()}"
         self.leave_session_btn.custom_id = f"p_leave_btn_{gamemode.lower()}"
 
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        """Blocco di sicurezza hardcode: se l'utente non ha i permessi, i bottoni falliscono subito."""
+    def is_staff(self, interaction: discord.Interaction) -> bool:
         is_owner_guild = interaction.user.id == interaction.guild.owner_id
         is_admin = interaction.user.guild_permissions.administrator
         specific_role_needed = f"Tester {self.gamemode}"
         has_role = any(role.name == specific_role_needed for role in interaction.user.roles)
         is_owner_role = any(role.name == "Owner" for role in interaction.user.roles)
-        
-        if not (has_role or is_owner_role or is_owner_guild or is_admin):
-            await interaction.response.send_message(f"❌ Non hai i permessi di `{specific_role_needed}` o `Owner` per usare la bacheca.", ephemeral=True)
-            return False
-        return True
+        return has_role or is_owner_role or is_owner_guild or is_admin
 
-    @discord.ui.button(label="Join as Tester", style=discord.ButtonStyle.blurple)
+    @discord.ui.button(label="Join Queue", style=discord.ButtonStyle.blurple)
+    async def join_queue_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Accessible by anyone to register directly from the board channel!
+        await interaction.response.send_modal(MinecraftNameModal(self.gamemode))
+
+    @discord.ui.button(label="Join as Tester", style=discord.ButtonStyle.grey)
     async def join_tester_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self.is_staff(interaction):
+            await interaction.response.send_message("❌ This action is restricted to Staff Members.", ephemeral=True)
+            return
+            
         if active_testers[self.gamemode] is not None:
             await interaction.response.send_message("❌ A tester is already active on this board!", ephemeral=True)
             return
@@ -270,6 +267,10 @@ class StaffControlView(discord.ui.View):
 
     @discord.ui.button(label="Next Player", style=discord.ButtonStyle.green)
     async def next_player_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self.is_staff(interaction):
+            await interaction.response.send_message("❌ This action is restricted to Staff Members.", ephemeral=True)
+            return
+
         is_owner_guild = interaction.user.id == interaction.guild.owner_id
         is_admin = interaction.user.guild_permissions.administrator
 
@@ -311,7 +312,7 @@ class StaffControlView(discord.ui.View):
 
         eval_view = TesterPrivateEvalView(player_member, current_player_data['mc_name'], self.gamemode, match_room.id)
         await interaction.response.send_message(
-            content=f"⚡ **Match Room Created:** {match_room.mention}\nThe chat inside is completely clean. Use the button below whenever you are ready to input the Tier and close the match.",
+            content=f"⚡ **Match Room Created:** {match_room.mention}\nThe chat inside is completely private. Use the button below whenever you are ready to input the Tier and close the match.",
             view=eval_view,
             ephemeral=True
         )
@@ -321,6 +322,10 @@ class StaffControlView(discord.ui.View):
 
     @discord.ui.button(label="Leave Session", style=discord.ButtonStyle.red)
     async def leave_session_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self.is_staff(interaction):
+            await interaction.response.send_message("❌ This action is restricted to Staff Members.", ephemeral=True)
+            return
+
         is_owner_guild = interaction.user.id == interaction.guild.owner_id
         is_admin = interaction.user.guild_permissions.administrator
 
@@ -354,7 +359,7 @@ class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
             
         remaining = get_remaining_cooldown(user_id)
         if remaining is not None and not (is_owner or is_admin):
-            await interaction.response.send_message(f"❌ Non puoi eseguire il test. Mancano ancora **{remaining}** prima di poterne richiedere un altro.", ephemeral=True)
+            await interaction.response.send_message(f"❌ You cannot request a test yet. You must wait **{remaining}** before trying again.", ephemeral=True)
             return
                 
         await interaction.response.defer(ephemeral=True)
@@ -365,7 +370,6 @@ class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
         }
         queues[self.gamemode].append(player_data)
         
-        # AGGIUNTO: Se NON c'è un tester attivo al momento dell'iscrizione, avvia il timer AFK automatico
         if active_testers[self.gamemode] is None:
             asyncio.create_task(afk_queue_remover(user_id, self.gamemode, guild.id))
         
@@ -454,16 +458,15 @@ async def setup_board(interaction: discord.Interaction, gamemode: str):
     await interaction.followup.send(f"✅ Board initialized and channel permissions set up in {waitlist_channel.mention}", ephemeral=True)
 
 
-# --- COMANDO SLASH PER RIMUOVERE QUALCUNO MANUALMENTE DALLA CODA ---
-@bot.tree.command(name="remove_player", description="Rimuove manualmente un giocatore specifico dalla coda di una modalità")
-@app_commands.describe(player="Il membro Discord da rimuovere", gamemode="La modalità da cui rimuoverlo")
+# --- SLASH COMMAND TO REMOVE A PLAYER MANUALLY ---
+@bot.tree.command(name="remove_player", description="Manually remove a specific player from a gamemode queue")
+@app_commands.describe(player="The Discord member to remove", gamemode="The gamemode queue to remove them from")
 async def remove_player(interaction: discord.Interaction, player: discord.Member, gamemode: str):
     guild = interaction.guild
     
-    # Controllo permessi del comando
     matched_gm = next((gm for gm in GAMEMODES if gm.lower() == gamemode.lower()), None)
     if not matched_gm:
-        await interaction.response.send_message("❌ Modalità invalida. Controlla il nome scritto.", ephemeral=True)
+        await interaction.response.send_message("❌ Invalid gamemode. Please check your spelling.", ephemeral=True)
         return
         
     is_owner_guild = interaction.user.id == guild.owner_id
@@ -472,20 +475,17 @@ async def remove_player(interaction: discord.Interaction, player: discord.Member
     has_owner_role = any(role.name == "Owner" for role in interaction.user.roles)
     
     if not (has_tester_role or has_owner_role or is_owner_guild or is_admin):
-        await interaction.response.send_message(f"❌ Solo i tester dedicati a `{matched_gm}` o gli Admin possono usare questo comando.", ephemeral=True)
+        await interaction.response.send_message(f"❌ Only dedicated Testers for `{matched_gm}` or Admins can use this command.", ephemeral=True)
         return
 
-    # Cerchiamo l'utente nella coda specifica
     player_entry = next((p for p in queues[matched_gm] if p['user_id'] == player.id), None)
     
     if not player_entry:
-        await interaction.response.send_message(f"❌ {player.mention} non si trova nella coda della modalità **{matched_gm}**.", ephemeral=True)
+        await interaction.response.send_message(f"❌ {player.mention} is not in the **{matched_gm}** queue.", ephemeral=True)
         return
         
-    # Rimozione effettiva
     queues[matched_gm].remove(player_entry)
     
-    # Rimuoviamo i permessi di lettura dal canale waitlist per quell'utente
     waitlist_channel = discord.utils.get(guild.text_channels, name=f"waitlist-{matched_gm.lower()}")
     if waitlist_channel:
         try:
@@ -493,10 +493,42 @@ async def remove_player(interaction: discord.Interaction, player: discord.Member
         except Exception:
             pass
             
-    # Aggiorna la grafica della bacheca
     await update_board_message(guild, matched_gm)
-    
-    await interaction.response.send_message(f"✅ {player.mention} è stato rimosso con successo dalla coda **{matched_gm}**.")
+    await interaction.response.send_message(f"✅ Successfully removed {player.mention} from the **{matched_gm}** queue.")
+
+
+# --- GLOBAL /LEAVE COMMAND FOR PLAYERS ---
+@bot.tree.command(name="leave", description="Leave your current testing queue instantly")
+async def leave(interaction: discord.Interaction):
+    user_id = interaction.user.id
+    guild = interaction.guild
+    found = False
+    target_gm = None
+
+    # Check all gamemode queues
+    for gm in GAMEMODES:
+        player_entry = next((p for p in queues[gm] if p['user_id'] == user_id), None)
+        if player_entry:
+            queues[gm].remove(player_entry)
+            target_gm = gm
+            found = True
+            break
+
+    if not found:
+        await interaction.response.send_message("❌ You are not in any testing queue.", ephemeral=True)
+        return
+
+    # Reset permissions for the waitlist channel
+    waitlist_channel = discord.utils.get(guild.text_channels, name=f"waitlist-{target_gm.lower()}")
+    if waitlist_channel:
+        try:
+            await waitlist_channel.set_permissions(interaction.user, overwrite=None)
+        except Exception:
+            pass
+
+    # Update visual board
+    await update_board_message(guild, target_gm)
+    await interaction.response.send_message(f"✅ You have successfully left the **{target_gm}** queue.", ephemeral=True)
 
 keep_alive()
 bot.run(os.environ.get("DISCORD_TOKEN"))
