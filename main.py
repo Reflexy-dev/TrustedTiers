@@ -230,6 +230,7 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
                 try: await msg.add_reaction(emo)
                 except Exception: pass
         
+        # --- PLAYER REMOVED FROM QUEUE ONLY NOW AT THE VERY END ---
         player_entry = next((p for p in queues[self.gamemode] if p['user_id'] == self.player_member.id), None)
         if player_entry:
             queues[self.gamemode].remove(player_entry)
@@ -241,7 +242,6 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         role = discord.utils.get(guild.roles, name=role_name)
         if not role:
             try: 
-                # FIXED: Roles are now automatically created with clean WHITE/DEFAULT color
                 role = await guild.create_role(name=role_name, mentionable=True, color=discord.Color.default())
             except Exception: 
                 pass
@@ -250,7 +250,7 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
             except Exception: pass
 
         await update_board_message(guild, self.gamemode)
-        await log_to_staff(guild, f"Tester {interaction.user.mention} evaluated {self.player_member.mention} to **{rank_earned}** on {self.gamemode} and removed them from the queue.")
+        await log_to_staff(guild, f"Tester {interaction.user.mention} evaluated {self.player_member.mention} to **{rank_earned}** on {self.gamemode}.")
 
         match_channel = guild.get_channel(self.ticket_channel_id)
         if match_channel:
@@ -300,7 +300,7 @@ class StaffControlView(discord.ui.View):
         is_owner_guild = interaction.user.id == interaction.guild.owner_id
         is_admin = interaction.user.guild_permissions.administrator
         specific_role_needed = f"Tester {self.gamemode}"
-        has_role = any(role.name == specific_role_needed for role in interaction.user.roles)
+        has_role = any(role.name == specific_needed for role in interaction.user.roles) if 'specific_needed' in locals() else any(role.name == f"Tester {self.gamemode}" for role in interaction.user.roles)
         is_owner_role = any(role.name == "Owner" for role in interaction.user.roles)
         
         if not (has_role or is_owner_role or is_owner_guild or is_admin):
@@ -332,16 +332,24 @@ class StaffControlView(discord.ui.View):
             await interaction.response.send_message("❌ The queue is currently empty!", ephemeral=True)
             return
 
+        # PLAYER STAYS IN QUEUE (Look, don't remove)
         current_player_data = queues[self.gamemode][0]
         guild = interaction.guild
         player_member = guild.get_member(current_player_data['user_id'])
 
         if not player_member:
-            await interaction.response.send_message("⚠️ Player left the server. Skipped and removed.", ephemeral=True)
+            await interaction.response.send_message("⚠️ Player left the server. Skipped.", ephemeral=True)
             queues[self.gamemode].pop(0)
             save_data()
             refreshed_embed = generate_queue_embed(self.gamemode)
             await interaction.response.edit_message(embed=refreshed_embed, view=self)
+            return
+
+        # DUPES PROTECTION: Check if private channel already exists for this exact match
+        expected_room_name = f"🔒-match-{self.gamemode.lower()}-{player_member.name}".lower()
+        room_exists = discord.utils.get(guild.text_channels, name=expected_room_name)
+        if room_exists:
+            await interaction.response.send_message(f"❌ Match channel already created! Go to {room_exists.mention}", ephemeral=True)
             return
 
         try:
@@ -359,8 +367,7 @@ class StaffControlView(discord.ui.View):
             player_member: discord.PermissionOverwrite(read_messages=True, send_messages=True)
         }
 
-        room_name = f"🔒-match-{self.gamemode.lower()}-{player_member.name}"
-        match_room = await guild.create_text_channel(name=room_name, category=category, overwrites=private_overwrites)
+        match_room = await guild.create_text_channel(name=expected_room_name, category=category, overwrites=private_overwrites)
 
         eval_view = TesterPrivateEvalView(player_member, current_player_data['mc_name'], self.gamemode, match_room.id)
         await interaction.response.send_message(
@@ -369,8 +376,9 @@ class StaffControlView(discord.ui.View):
             ephemeral=True
         )
         
-        await log_to_staff(guild, f"Tester {interaction.user.mention} moved to next player: Opened match room {match_room.mention} with {player_member.mention}. Player remains listed on the board during testing.")
+        await log_to_staff(guild, f"Tester {interaction.user.mention} moved to next player: Opened match room {match_room.mention} with {player_member.mention}. Player stays listed on the board.")
         
+        # Refresh board (Player is still inside)
         refreshed_embed = generate_queue_embed(self.gamemode)
         await interaction.message.edit(embed=refreshed_embed, view=self)
 
@@ -429,7 +437,7 @@ class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
         if active_testers[self.gamemode] is None:
             asyncio.create_task(afk_queue_remover(user_id, self.gamemode, guild.id))
         
-        waitlist_channel = discord.utils.get(guild.text_channels, name=f"waitlist-{gamemode.lower()}")
+        waitlist_channel = discord.utils.get(guild.text_channels, name=f"waitlist-{self.gamemode.lower()}")
         
         if waitlist_channel:
             await waitlist_channel.set_permissions(interaction.user, read_messages=True, send_messages=False)
