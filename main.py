@@ -88,7 +88,6 @@ def is_user_in_any_queue(user_id):
     return False
 
 def get_remaining_cooldown(member_id, guild=None, user=None):
-    # Bypass per l'owner del server o amministratori
     if guild and user:
         if guild.owner_id == user.id or user.guild_permissions.administrator:
             return None
@@ -521,8 +520,6 @@ class MainTicketView(discord.ui.View):
         super().__init__(timeout=None)
         self.add_item(GamemodeSelect(user_id))
 
-# --- COMANDI UTENTE E STAFF AGGIUNTIVI ---
-
 @bot.tree.command(name="leave", description="Leave your current queue or waitlist")
 async def leave(interaction: discord.Interaction):
     user_id = interaction.user.id
@@ -636,7 +633,16 @@ async def setup_board(interaction: discord.Interaction, gamemode: str):
 async def on_ready():
     print(f"Logged in as {bot.user.name}")
     load_data()
-    for gm in GAMEMODES: bot.add_view(StaffControlView(gm))
+    
+    # Sincronizzazione automatica dei comandi all'avvio
+    try:
+        synced = await bot.tree.sync()
+        print(f"Synced {len(synced)} command(s) successfully.")
+    except Exception as e:
+        print(f"Failed to sync commands: {e}")
+
+    for gm in GAMEMODES: 
+        bot.add_view(StaffControlView(gm))
     print("Bot is fully ready and views registered!")
 
 bot.run(os.environ.get("DISCORD_TOKEN"))
