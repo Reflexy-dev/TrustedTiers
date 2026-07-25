@@ -9,6 +9,7 @@ from flask import Flask
 from threading import Thread
 from datetime import datetime, timedelta
 
+# Configurazione Flask per il Keep-Alive (senza bloccare il deploy)
 app = Flask('')
 
 @app.route('/')
@@ -17,10 +18,11 @@ def home():
 
 def run():
     port = int(os.environ.get("PORT", 8080))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
 def keep_alive():
     t = Thread(target=run)
+    t.daemon = True
     t.start()
 
 intents = discord.Intents.default()
@@ -40,7 +42,7 @@ DB_FILE = "database.json"
 
 queues = {gm: [] for gm in GAMEMODES}
 cooldowns = {}
-last_tested_data = {} # user_id -> {"gamemode": gm, "timestamp": iso_str, "rank": rank_name}
+last_tested_data = {}  # user_id -> {"gamemode": gm, "timestamp": iso_str, "rank": rank_name}
 active_testers = {gm: None for gm in GAMEMODES}
 
 def save_data():
@@ -268,13 +270,11 @@ class RetierModal(discord.ui.Modal, title="Retier Request"):
         old_rank = user_data.get("rank", "Unknown")
         retier_rank_name = f"R{old_rank} {gm}"
 
-        # Rimuovi ruoli precedenti della gamemode
         for role in interaction.user.roles:
             if role.name.endswith(f" {gm}"):
                 try: await interaction.user.remove_roles(role)
                 except: pass
 
-        # Crea o prendi ruolo grigio
         role = discord.utils.get(guild.roles, name=retier_rank_name)
         if not role:
             try:
@@ -285,7 +285,6 @@ class RetierModal(discord.ui.Modal, title="Retier Request"):
             try: await interaction.user.add_roles(role)
             except Exception: pass
 
-        # Controlla se è HT3 o superiore per high-results
         high_tier_keywords = ["HT3", "HT2", "HT1", "LT1", "LT2", "Tier 1", "Tier 2", "Tier 3"]
         is_high = any(k.lower() in old_rank.lower() for k in high_tier_keywords)
         channel_name = "🥇│hight-results" if is_high else "🏆│results"
@@ -298,9 +297,7 @@ class RetierModal(discord.ui.Modal, title="Retier Request"):
                 embed = discord.Embed(title="Player Retier 🔄", description=f"{interaction.user.mention} has officially retired from **{gm}** ({old_rank} -> {retier_rank_name}).", color=0x99aab5)
                 await target_channel.send(embed=embed)
 
-        # Imposta cooldown di 1 mese (30 giorni) per potersi ritestare/muovere
         cooldowns[user_id] = datetime.utcnow() + timedelta(days=30)
-        # Rimuovi o aggiorna record per bloccare reiter immediati
         del last_tested_data[user_id]
         save_data()
 
@@ -439,7 +436,6 @@ class MainTicketView(discord.ui.View):
         user_id = interaction.user.id
         user_data = last_tested_data.get(user_id)
         
-        # Mostra il pulsante o fai passare solo se idoneo (entro 35 giorni dall'ultimo test)
         if not user_data:
             await interaction.response.send_message("❌ You are not eligible for a retier (no recent test record found within 35 days).", ephemeral=True)
             return
@@ -471,4 +467,7 @@ async def setup_board(interaction: discord.Interaction, gamemode: str):
     await waitlist_channel.send(embed=generate_queue_embed(gamemode), view=StaffControlView(gamemode))
     await interaction.delete_original_response()
 
-bot.run(os.environ.get("DISCORD_TOKEN"))
+# Avvio sicuro ed eseguito in parallelo per non bloccare i server di hosting
+if __name__ == "__main__":
+    keep_alive()
+    bot.run(os.environ.get("DISCORD_TOKEN"))
