@@ -156,27 +156,33 @@ async def afk_queue_remover(user_id, gamemode, guild_id):
                 try: await member.send(f"⚠️ You have been removed from the **{gamemode}** queue due to inactivity.")
                 except Exception: pass
 
-class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
+class FastResultModal(discord.ui.Modal, title="Test Evaluation"):
     def __init__(self, player_member, mc_name, gamemode, channel_id, region_val="EU"):
         super().__init__()
         self.player_member = player_member
         self.mc_name = mc_name
         self.gamemode = gamemode
         self.channel_id = channel_id
+        
         self.region = discord.ui.TextInput(label="Region", placeholder="e.g. EU, NA", default=region_val, required=True)
-        self.prev_rank = discord.ui.TextInput(label="Previous Rank", placeholder="e.g. Unranked", default="Unranked", required=True)
-        self.new_rank = discord.ui.TextInput(label="Rank Earned", placeholder="e.g. High Tier 2", required=True)
+        self.status = discord.ui.TextInput(label="Result Status", placeholder="Passed Evaluation / Failed", default="Passed Evaluation", required=True)
+        self.new_rank = discord.ui.TextInput(label="New Rank (if passed)", placeholder="e.g. High Tier 3, LT2", default="High Tier 3", required=False)
+        self.fights_details = discord.ui.TextInput(label="Fights / Details", placeholder="e.g. Won 4-1 vs. siemprelloro", default="Won 4-1", required=True)
+        
         self.add_item(self.region)
-        self.add_item(self.prev_rank)
+        self.add_item(self.status)
         self.add_item(self.new_rank)
+        self.add_item(self.fights_details)
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         guild = interaction.guild
-        rank_earned = self.new_rank.value.strip()
-        prev_rank_val = self.prev_rank.value.strip()
         region_val = self.region.value.upper().strip()
+        status_val = self.status.value.strip()
+        rank_earned = self.new_rank.value.strip() if self.new_rank.value else "Unranked"
+        fights_val = self.fights_details.value.strip()
         clean_mc_name = self.mc_name.strip()
+        
         skin_url = "https://render.crafty.gg/3d/bust/866125ad5e2b474e987654b6138d4f45"
         async with aiohttp.ClientSession() as session:
             try:
@@ -189,17 +195,20 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
                 skin_url = f"https://mc-heads.net/player/{clean_mc_name}/512.png"
         
         embed = discord.Embed(color=0x5865f2)
-        embed.set_author(name=f"{guild.name}'s Test Results 🏆", icon_url=guild.icon.url if guild.icon else None)
+        embed.set_author(name=f"{guild.name} - Test Results", icon_url=guild.icon.url if guild.icon else None)
         embed.set_thumbnail(url=skin_url)
-        embed.add_field(name="Tester:", value=interaction.user.mention, inline=False)
-        embed.add_field(name="Region:", value=region_val, inline=False)
-        embed.add_field(name="Username:", value=f"{clean_mc_name}", inline=False)
-        embed.add_field(name="Previous Rank:", value=prev_rank_val, inline=False)
-        embed.add_field(name="Rank Earned:", value=rank_earned, inline=False)
+        embed.description = f"{interaction.user.mention} – **{clean_mc_name}** – Promoted to **{rank_earned}**\n\n**{status_val}**\n\n**{self.gamemode} Fights**\n| {fights_val}"
         
-        high_tier_keywords = ["LT1", "HT1", "LT2", "HT2", "1", "2", "Tier 1", "Tier 2"]
-        is_high = any(keyword.lower() in rank_earned.lower() for keyword in high_tier_keywords)
-        channel_name = "🥇│hight-results" if is_high else "🏆│results"
+        # Logica per determinare se va in hight-results (sopra HT3, quindi HT1, HT2, LT1, LT2, ecc.)
+        # Controlliamo se contiene 1 o 2 (es. HT1, HT2, LT1, LT2) o se è esplicitamente sopra HT3
+        upper_rank = rank_earned.upper()
+        is_above_ht3 = False
+        if any(k in upper_rank for k in ["HT1", "HT2", "LT1", "LT2", "TIER 1", "TIER 2"]):
+            is_above_ht3 = True
+        elif "HT3" in upper_rank or "LT3" in upper_rank or "HT4" in upper_rank or "HT5" in upper_rank or "LT4" in upper_rank or "LT5" in upper_rank:
+            is_above_ht3 = False
+            
+        channel_name = "🥇│hight-results" if is_above_ht3 else "🏆│results"
         
         target_channel = discord.utils.get(guild.text_channels, name=channel_name)
         if target_channel:
@@ -215,22 +224,23 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         cooldowns[self.player_member.id] = datetime.utcnow() + timedelta(days=35)
         save_data()
 
-        for role in self.player_member.roles:
-            if role.name.endswith(f" {self.gamemode}"):
-                try: await self.player_member.remove_roles(role)
-                except: pass
+        if "pass" in status_val.lower():
+            for role in self.player_member.roles:
+                if role.name.endswith(f" {self.gamemode}"):
+                    try: await self.player_member.remove_roles(role)
+                    except: pass
 
-        role_name = f"{rank_earned} {self.gamemode}"
-        role = discord.utils.get(guild.roles, name=role_name)
-        if not role:
-            try: role = await guild.create_role(name=role_name, mentionable=True, color=discord.Color.default())
-            except Exception: pass
-        if role:
-            try: await self.player_member.add_roles(role)
-            except Exception: pass
+            role_name = f"{rank_earned} {self.gamemode}"
+            role = discord.utils.get(guild.roles, name=role_name)
+            if not role:
+                try: role = await guild.create_role(name=role_name, mentionable=True, color=discord.Color.default())
+                except Exception: pass
+            if role:
+                try: await self.player_member.add_roles(role)
+                except Exception: pass
 
         await update_board_message(guild, self.gamemode)
-        await log_to_staff(guild, f"Tester {interaction.user.mention} evaluated {self.player_member.mention} to **{rank_earned}**.")
+        await log_to_staff(guild, f"Tester {interaction.user.mention} evaluated {self.player_member.mention} ({status_val}).")
         match_channel = guild.get_channel(self.channel_id)
         if match_channel:
             try: await match_channel.delete()
@@ -436,12 +446,11 @@ async def on_ready():
 @bot.tree.command(name="setup_panel", description="Generate the main booking panel with request test and retier options")
 async def setup_panel(interaction: discord.Interaction):
     await interaction.response.send_message(
-        embed=discord.Embed(title="⚔️ Request a Tierlist Test / Retier", description="Use the dropdowns below to request a test or self-retier (available after 35 days).", color=0x5865f2), 
-        view=discord.ui.View().add_item(GamemodeSelect())
+        embed=discord.Embed(title="⚔️ Request a Tierlist Test", description="Select a mode from the dropdown below to request a test.", color=0x5865f2), 
+        view=MainTicketView()
     )
-    # Sends a second message containing the Retier menu right underneath
     await interaction.followup.send(
-        embed=discord.Embed(title="♻️ Retier Section", description="Select a gamemode below to process your retier.", color=0x95a5a6),
+        embed=discord.Embed(title="♻️ Retier Section", description="Select a gamemode below to process your retier (available after 35 days).", color=0x95a5a6),
         view=RetierView()
     )
 
