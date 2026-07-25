@@ -1,3 +1,6 @@
+Eccoti il codice completo e aggiornato pronto da copiare e incollare. Comprende tutte le modifiche richieste (regione nel modale di verifica, regione mostrata correttamente in coda e nei risultati, e la doppia scelta del tipo di embed finale nel pannello privato del tester).
+
+Python
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -595,4 +598,5 @@ async def setup_board(interaction: discord.Interaction, gamemode: str):
     await waitlist_channel.send(embed=generate_queue_embed(gamemode), view=StaffControlView(gamemode))
     await interaction.delete_original_response()
 
+keep_alive()
 bot.run(os.environ.get("DISCORD_TOKEN"))
