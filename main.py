@@ -41,7 +41,6 @@ DB_FILE = "database.json"
 queues = {gm: [] for gm in GAMEMODES}
 cooldowns = {}
 active_testers = {gm: None for gm in GAMEMODES}
-# Struttura dati per ultimi test e ritiri: {user_id: {gamemode: {"last_test": iso_str, "retired": bool, "retired_at": iso_str}}}
 user_records = {}
 
 def save_data():
@@ -157,7 +156,6 @@ async def afk_queue_remover(user_id, gamemode, guild_id):
 
 def is_high_tier(rank_name):
     rank_lower = rank_name.lower()
-    # Controlla se è High Tier 3 o superiore (es. HT3, LT1, HT1, Tier 1, ecc.)
     high_keywords = ["ht1", "lt1", "ht2", "lt2", "ht3", "tier 1", "tier 2", "tier 3", "high tier 3"]
     if any(k in rank_lower for k in high_keywords):
         if "low tier 3" in rank_lower or "lt3" in rank_lower:
@@ -198,7 +196,6 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         is_high = is_high_tier(rank_earned)
         channel_name = "🥇│hight-results" if is_high else "🏆│results"
         
-        # Stile simile all'immagine richiesta
         embed = discord.Embed(color=0x5865f2)
         embed.set_author(name=f"{guild.name}'s Test Results 🏆", icon_url=guild.icon.url if guild.icon else None)
         embed.set_thumbnail(url=skin_url)
@@ -221,7 +218,6 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
             
         cooldowns[self.player_member.id] = datetime.utcnow() + timedelta(days=7)
         
-        # Aggiorna record utente per tracciare il tempo dall'ultimo test (per il retirement)
         uid = self.player_member.id
         if uid not in user_records:
             user_records[uid] = {}
@@ -232,7 +228,6 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         }
         save_data()
 
-        # Rimuovi ruoli precedenti della stessa gamemode
         for role in self.player_member.roles:
             if role.name.endswith(f" {self.gamemode}"):
                 try: await self.player_member.remove_roles(role)
@@ -395,8 +390,7 @@ class RetirementModal(discord.ui.Modal, title="Tier Retirement"):
                     user_records[uid][gm]["retired_at"] = now_str
             save_data()
         await interaction.followup.send(f"✅ You have successfully retired from: {', '.join(self.gamemodes_to_retire)}.", ephemeral=True)
-        # Aggiorna il pannello principale
-        await interaction.message.edit(view=MainTicketView(user_id=uid))
+        await interaction.message.edit(view=MainTicketView())
 
 class UnretirementModal(discord.ui.Modal, title="Tier Unretirement"):
     note = discord.ui.TextInput(label="Confirmation Note", placeholder="Type 'Ready to play again'", default="Ready to play again", required=True)
@@ -413,18 +407,18 @@ class UnretirementModal(discord.ui.Modal, title="Tier Unretirement"):
             for gm in self.gamemodes_to_unretire:
                 if gm in user_records[uid]:
                     user_records[uid][gm]["retired"] = False
-                    user_records[uid][gm]["last_test"] = now_str  # Reset del timer
+                    user_records[uid][gm]["last_test"] = now_str
                     user_records[uid][gm]["retired_at"] = None
             save_data()
         await interaction.followup.send(f"✅ You have successfully unretired from: {', '.join(self.gamemodes_to_unretire)}.", ephemeral=True)
-        await interaction.message.edit(view=MainTicketView(user_id=uid))
+        await interaction.message.edit(view=MainTicketView())
 
 class RetirementSelect(discord.ui.Select):
     def __init__(self, eligible_gamemodes, action_type="retire"):
         self.action_type = action_type
         options = [discord.SelectOption(label=gm, emoji=GAMEMODE_EMOJIS[gm]) for gm in eligible_gamemodes]
         placeholder = "Choose gamemodes to retire..." if action_type == "retire" else "Choose gamemodes to unretire..."
-        super().__init__(placeholder=placeholder, min_values=1, max_values=len(options), options=options)
+        super().__init__(placeholder=placeholder, min_values=1, max_values=len(options), options=options, custom_id=f"persistent_{action_type}_select")
 
     async def callback(self, interaction: discord.Interaction):
         if self.action_type == "retire":
@@ -435,7 +429,8 @@ class RetirementSelect(discord.ui.Select):
 class GamemodeSelect(discord.ui.Select):
     def __init__(self):
         options = [discord.SelectOption(label=gm, emoji=GAMEMODE_EMOJIS[gm]) for gm in GAMEMODES]
-        super().__init__(placeholder="Choose a gamemode to test...", options=options)
+        super().__init__(placeholder="Choose a gamemode to test...", options=options, custom_id="persistent_gamemode_select")
+        
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.send_modal(MinecraftNameModal(self.values[0]))
 
@@ -456,13 +451,11 @@ class MainTicketView(discord.ui.View):
                 
                 if last_test_str and not retired:
                     last_test_date = datetime.fromisoformat(last_test_str)
-                    # 35 giorni dall'ultimo test per andare in retirement
                     if (now - last_test_date).days >= 35:
                         retire_eligible.append(gm)
                 
                 if retired and retired_at_str:
                     retired_date = datetime.fromisoformat(retired_at_str)
-                    # 35 giorni dal retirement per poter fare unretier
                     if (now - retired_date).days >= 35:
                         unretire_eligible.append(gm)
             
@@ -481,7 +474,6 @@ async def on_ready():
 
 @bot.tree.command(name="setup_panel", description="Generate the main booking panel")
 async def setup_panel(interaction: discord.Interaction):
-    # Passiamo l'id dell'utente così il pannello riconosce se può mostrare i bottoni di retirement/unretirement personali
     view = MainTicketView(user_id=interaction.user.id)
     await interaction.response.send_message(
         embed=discord.Embed(
