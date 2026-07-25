@@ -243,7 +243,7 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         save_data()
 
         for role in self.player_member.roles:
-            if role.name.endswith(f" {self.gamemode}") or role.name.startswith("R") and role.name.endswith(f" {self.gamemode}"):
+            if role.name.endswith(f" {self.gamemode}") or (role.name.startswith("R") and role.name.endswith(f" {self.gamemode}")):
                 try: await self.player_member.remove_roles(role)
                 except: pass
 
