@@ -40,8 +40,7 @@ DB_FILE = "database.json"
 
 queues = {gm: [] for gm in GAMEMODES}
 cooldowns = {}
-retire_cooldowns = {}
-last_tests = {} 
+last_tested_data = {} # user_id -> {"gamemode": gm, "timestamp": iso_str, "rank": rank_name}
 active_testers = {gm: None for gm in GAMEMODES}
 
 def save_data():
@@ -49,8 +48,7 @@ def save_data():
         data = {
             "queues": queues,
             "cooldowns": {str(k): v.isoformat() for k, v in cooldowns.items()},
-            "retire_cooldowns": {str(k): v.isoformat() for k, v in retire_cooldowns.items()},
-            "last_tests": {str(uid): {gm: {"date": info["date"].isoformat(), "rank": info["rank"]} for gm, info in gms.items()} for uid, gms in last_tests.items()}
+            "last_tested_data": {str(k): v for k, v in last_tested_data.items()}
         }
         with open(DB_FILE, "w") as f:
             json.dump(data, f, indent=4)
@@ -58,7 +56,7 @@ def save_data():
         print(f"Error saving database: {e}")
 
 def load_data():
-    global queues, cooldowns, retire_cooldowns, last_tests
+    global queues, cooldowns, last_tested_data
     if os.path.exists(DB_FILE):
         try:
             with open(DB_FILE, "r") as f:
@@ -67,29 +65,13 @@ def load_data():
                 for gm in GAMEMODES:
                     if gm in loaded_queues:
                         queues[gm] = loaded_queues[gm]
-                
                 loaded_cooldowns = data.get("cooldowns", {})
                 now = datetime.utcnow()
                 for k, v in loaded_cooldowns.items():
                     exp_time = datetime.fromisoformat(v)
                     if now < exp_time:
                         cooldowns[int(k)] = exp_time
-
-                loaded_retire = data.get("retire_cooldowns", {})
-                for k, v in loaded_retire.items():
-                    exp_time = datetime.fromisoformat(v)
-                    if now < exp_time:
-                        retire_cooldowns[int(k)] = exp_time
-
-                loaded_tests = data.get("last_tests", {})
-                for uid_str, gms in loaded_tests.items():
-                    uid = int(uid_str)
-                    last_tests[uid] = {}
-                    for gm, info in gms.items():
-                        last_tests[uid][gm] = {
-                            "date": datetime.fromisoformat(info["date"]),
-                            "rank": info["rank"]
-                        }
+                last_tested_data = {int(k): v for k, v in data.get("last_tested_data", {}).items()}
             print("Database loaded successfully!")
         except Exception as e:
             print(f"Error loading database: {e}")
@@ -119,25 +101,6 @@ def get_remaining_cooldown(member_id):
             save_data()
     return None
 
-def get_remaining_retire_cooldown(member_id):
-    if member_id in retire_cooldowns:
-        expiration = retire_cooldowns[member_id]
-        now = datetime.utcnow()
-        if now < expiration:
-            delta = expiration - now
-            days = delta.days
-            hours, remainder = divmod(delta.seconds, 3600)
-            minutes, _ = divmod(remainder, 60)
-            parts = []
-            if days > 0: parts.append(f"{days} day{'s' if days != 1 else ''}")
-            if hours > 0: parts.append(f"{hours} hour{'s' if hours != 1 else ''}")
-            if minutes > 0: parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
-            return ", ".join(parts) if parts else "a few seconds"
-        else:
-            del retire_cooldowns[member_id]
-            save_data()
-    return None
-
 async def log_to_staff(guild, text):
     log_channel = discord.utils.get(guild.text_channels, name=STAFF_LOG_CHANNEL_NAME)
     if log_channel:
@@ -151,7 +114,7 @@ def generate_queue_embed(gamemode):
         queue_list = "*Empty*"
     else:
         for idx, player in enumerate(queues[gamemode], start=1):
-            queue_list += f"{idx}. <@{player['user_id']}> ({player.get('region', 'EU')})\n"
+            queue_list += f"{idx}. <@{player['user_id']}>\n"
     tester_mention = f"<@{active_testers[gamemode]}>" if active_testers[gamemode] else "*None*"
     embed = discord.Embed(
         title=title_status,
@@ -186,17 +149,17 @@ async def afk_queue_remover(user_id, gamemode, guild_id):
                 try: await member.send(f"⚠️ You have been removed from the **{gamemode}** queue due to inactivity.")
                 except Exception: pass
 
-class FastResultModal(discord.ui.Modal, title="Test Evaluation"):
-    def __init__(self, player_member, mc_name, region, gamemode, ticket_channel_id):
+class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
+    def __init__(self, player_member, mc_name, gamemode, ticket_channel_id):
         super().__init__()
         self.player_member = player_member
         self.mc_name = mc_name
-        self.region = region
         self.gamemode = gamemode
         self.ticket_channel_id = ticket_channel_id
-        
+        self.region = discord.ui.TextInput(label="Region", placeholder="e.g. EU, NA", default="EU", required=True)
         self.prev_rank = discord.ui.TextInput(label="Previous Rank", placeholder="e.g. Unranked", default="Unranked", required=True)
-        self.new_rank = discord.ui.TextInput(label="Rank Earned", placeholder="e.g. LT1", default="LT1", required=True)
+        self.new_rank = discord.ui.TextInput(label="Rank Earned", placeholder="e.g. High Tier 2", required=True)
+        self.add_item(self.region)
         self.add_item(self.prev_rank)
         self.add_item(self.new_rank)
 
@@ -205,9 +168,8 @@ class FastResultModal(discord.ui.Modal, title="Test Evaluation"):
         guild = interaction.guild
         rank_earned = self.new_rank.value.strip()
         prev_rank_val = self.prev_rank.value.strip()
+        region_val = self.region.value.upper().strip()
         clean_mc_name = self.mc_name.strip()
-        region_val = self.region.upper().strip()
-        
         skin_url = "https://render.crafty.gg/3d/bust/866125ad5e2b474e987654b6138d4f45"
         async with aiohttp.ClientSession() as session:
             try:
@@ -228,13 +190,17 @@ class FastResultModal(discord.ui.Modal, title="Test Evaluation"):
         embed.add_field(name="Previous Rank:", value=prev_rank_val, inline=False)
         embed.add_field(name="Rank Earned:", value=rank_earned, inline=False)
         
-        high_tier_keywords = ["LT1", "HT1", "LT2", "HT2", "1", "2", "Tier 1", "Tier 2"]
-        is_high = any(keyword.lower() in rank_earned.lower() for keyword in high_tier_keywords)
+        high_tier_keywords = ["HT3", "HT2", "HT1", "LT1", "LT2", "Tier 1", "Tier 2", "Tier 3"]
+        is_high = any(k.lower() in rank_earned.lower() for k in high_tier_keywords)
         channel_name = "🥇│hight-results" if is_high else "🏆│results"
         
         target_channel = discord.utils.get(guild.text_channels, name=channel_name)
         if target_channel:
-            msg = await target_channel.send(content=self.player_member.mention, embed=embed)
+            if is_high:
+                content_msg = f"{interaction.user.mention} - {clean_mc_name} - Promoted to **{rank_earned}**"
+                msg = await target_channel.send(content=content_msg)
+            else:
+                msg = await target_channel.send(content=self.player_member.mention, embed=embed)
             for emo in ["👑", "🥳", "😱", "😭", "😂", "💀"]:
                 try: await msg.add_reaction(emo)
                 except Exception: pass
@@ -244,10 +210,9 @@ class FastResultModal(discord.ui.Modal, title="Test Evaluation"):
             queues[self.gamemode].remove(player_entry)
             
         cooldowns[self.player_member.id] = datetime.utcnow() + timedelta(days=7)
-        if self.player_member.id not in last_tests:
-            last_tests[self.player_member.id] = {}
-        last_tests[self.player_member.id][self.gamemode] = {
-            "date": datetime.utcnow(),
+        last_tested_data[self.player_member.id] = {
+            "gamemode": self.gamemode,
+            "timestamp": datetime.utcnow().isoformat(),
             "rank": rank_earned
         }
         save_data()
@@ -273,113 +238,90 @@ class FastResultModal(discord.ui.Modal, title="Test Evaluation"):
             try: await match_channel.delete()
             except Exception: pass
 
-class DetailedResultModal(discord.ui.Modal, title="Detailed Test Evaluation"):
-    def __init__(self, player_member, mc_name, region, gamemode, ticket_channel_id):
-        super().__init__()
-        self.player_member = player_member
-        self.mc_name = mc_name
-        self.region = region
-        self.gamemode = gamemode
-        self.ticket_channel_id = ticket_channel_id
-        
-        self.eval_status = discord.ui.TextInput(label="Evaluation Status", placeholder="e.g. Failed / Promoted to", default="Failed", required=True)
-        self.prev_rank = discord.ui.TextInput(label="Previous Rank", placeholder="e.g. Low Tier 2", default="Low Tier 2", required=True)
-        self.new_rank = discord.ui.TextInput(label="Result Rank / Target", placeholder="e.g. Low Tier 2 / High Tier 3", default="Low Tier 2", required=True)
-        self.fights_section_1 = discord.ui.TextInput(label="Fights Section 1", placeholder="Won 4-3 vs. player", style=discord.TextStyle.paragraph, required=False)
-        self.fights_section_2 = discord.ui.TextInput(label="Fights Section 2", placeholder="Lost 1-4 vs. player", style=discord.TextStyle.paragraph, required=False)
-        
-        self.add_item(self.eval_status)
-        self.add_item(self.prev_rank)
-        self.add_item(self.new_rank)
-        self.add_item(self.fights_section_1)
-        self.add_item(self.fights_section_2)
+class RetierModal(discord.ui.Modal, title="Retier Request"):
+    gamemode_input = discord.ui.TextInput(label="Gamemode to Retier from", placeholder="e.g. Sword", required=True)
 
     async def on_submit(self, interaction: discord.Interaction):
+        user_id = interaction.user.id
+        gm = self.gamemode_input.value.strip().capitalize()
+        if gm not in GAMEMODES:
+            await interaction.response.send_message(f"❌ Invalid gamemode. Choose from: {', '.join(GAMEMODES)}", ephemeral=True)
+            return
+
+        user_data = last_tested_data.get(user_id)
+        if not user_data or user_data.get("gamemode") != gm:
+            await interaction.response.send_message("❌ You have no recent record or test found for this gamemode to retier from.", ephemeral=True)
+            return
+
+        last_time = datetime.fromisoformat(user_data["timestamp"])
+        if datetime.utcnow() - last_time > timedelta(days=35):
+            await interaction.response.send_message("❌ You can only retier within 35 days of your last test/evaluation.", ephemeral=True)
+            return
+
+        remaining = get_remaining_cooldown(user_id)
+        if remaining is not None:
+            await interaction.response.send_message(f"❌ You are on cooldown: {remaining}", ephemeral=True)
+            return
+
         await interaction.response.defer(ephemeral=True)
         guild = interaction.guild
-        status_val = self.eval_status.value.strip()
-        prev_rank_val = self.prev_rank.value.strip()
-        rank_earned = self.new_rank.value.strip()
-        clean_mc_name = self.mc_name.strip()
-        
-        description_text = f"{self.player_member.mention} - **{status_val} {rank_earned}**\n\n"
-        if self.fights_section_1.value.strip():
-            description_text += f"**Section 1:**\n```ansi\n{self.fights_section_1.value.strip()}\n```\n\n"
-        if self.fights_section_2.value.strip():
-            description_text += f"**Section 2:**\n```ansi\n{self.fights_section_2.value.strip()}\n```\n"
+        old_rank = user_data.get("rank", "Unknown")
+        retier_rank_name = f"R{old_rank} {gm}"
 
-        embed = discord.Embed(description=description_text, color=0x5865f2)
-        
-        high_tier_keywords = ["LT1", "HT1", "LT2", "HT2", "1", "2", "Tier 1", "Tier 2"]
-        is_high = any(keyword.lower() in rank_earned.lower() for keyword in high_tier_keywords) or any(keyword.lower() in status_val.lower() for keyword in high_tier_keywords)
-        channel_name = "🥇│hight-results" if is_high else "🏆│results"
-        
-        target_channel = discord.utils.get(guild.text_channels, name=channel_name)
-        if target_channel:
-            msg = await target_channel.send(content=f"{interaction.user.mention} - {clean_mc_name}", embed=embed)
-            for emo in ["👑", "🥳", "😱", "😭", "😂", "💀", "💔"]:
-                try: await msg.add_reaction(emo)
-                except Exception: pass
-        
-        player_entry = next((p for p in queues[self.gamemode] if p['user_id'] == self.player_member.id), None)
-        if player_entry:
-            queues[self.gamemode].remove(player_entry)
-            
-        cooldowns[self.player_member.id] = datetime.utcnow() + timedelta(days=7)
-        if self.player_member.id not in last_tests:
-            last_tests[self.player_member.id] = {}
-        last_tests[self.player_member.id][self.gamemode] = {
-            "date": datetime.utcnow(),
-            "rank": rank_earned
-        }
-        save_data()
-
-        for role in self.player_member.roles:
-            if role.name.endswith(f" {self.gamemode}"):
-                try: await self.player_member.remove_roles(role)
+        # Rimuovi ruoli precedenti della gamemode
+        for role in interaction.user.roles:
+            if role.name.endswith(f" {gm}"):
+                try: await interaction.user.remove_roles(role)
                 except: pass
 
-        if "promoted" in status_val.lower() or "passed" in status_val.lower():
-            role_name = f"{rank_earned} {self.gamemode}"
-            role = discord.utils.get(guild.roles, name=role_name)
-            if not role:
-                try: role = await guild.create_role(name=role_name, mentionable=True, color=discord.Color.default())
-                except Exception: pass
-            if role:
-                try: await self.player_member.add_roles(role)
-                except Exception: pass
-
-        await update_board_message(guild, self.gamemode)
-        await log_to_staff(guild, f"Tester {interaction.user.mention} evaluated {self.player_member.mention} with detailed report.")
-        match_channel = guild.get_channel(self.ticket_channel_id)
-        if match_channel:
-            try: await match_channel.delete()
+        # Crea o prendi ruolo grigio
+        role = discord.utils.get(guild.roles, name=retier_rank_name)
+        if not role:
+            try:
+                role = await guild.create_role(name=retier_rank_name, mentionable=True, color=discord.Color.light_gray())
+            except Exception:
+                pass
+        if role:
+            try: await interaction.user.add_roles(role)
             except Exception: pass
 
+        # Controlla se è HT3 o superiore per high-results
+        high_tier_keywords = ["HT3", "HT2", "HT1", "LT1", "LT2", "Tier 1", "Tier 2", "Tier 3"]
+        is_high = any(k.lower() in old_rank.lower() for k in high_tier_keywords)
+        channel_name = "🥇│hight-results" if is_high else "🏆│results"
+        target_channel = discord.utils.get(guild.text_channels, name=channel_name)
+
+        if target_channel:
+            if is_high:
+                await target_channel.send(content=f"{interaction.user.mention} - Retired from {old_rank} {gm} (Assigned **{retier_rank_name}**)")
+            else:
+                embed = discord.Embed(title="Player Retier 🔄", description=f"{interaction.user.mention} has officially retired from **{gm}** ({old_rank} -> {retier_rank_name}).", color=0x99aab5)
+                await target_channel.send(embed=embed)
+
+        # Imposta cooldown di 1 mese (30 giorni) per potersi ritestare/muovere
+        cooldowns[user_id] = datetime.utcnow() + timedelta(days=30)
+        # Rimuovi o aggiorna record per bloccare reiter immediati
+        del last_tested_data[user_id]
+        save_data()
+
+        await interaction.followup.send(f"✅ Successfully processed your retier for **{gm}**. Assigned role: `{retier_rank_name}`.", ephemeral=True)
+        await log_to_staff(guild, f"Player {interaction.user.mention} performed a Retier for **{gm}** (Old rank was {old_rank}).")
+
 class TesterPrivateEvalView(discord.ui.View):
-    def __init__(self, player_member, mc_name, region, gamemode, channel_id):
+    def __init__(self, player_member, mc_name, gamemode, channel_id):
         super().__init__(timeout=None)
         self.player_member = player_member
         self.mc_name = mc_name
-        self.region = region
         self.gamemode = gamemode
         self.channel_id = channel_id
 
-    @discord.ui.button(label="⭐ Fast Eval", style=discord.ButtonStyle.green, custom_id="tester_eval_fast_btn")
-    async def open_fast_eval(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @discord.ui.button(label="⭐ Open Tier Evaluation", style=discord.ButtonStyle.green, custom_id="tester_eval_secret_btn")
+    async def open_eval_modal(self, interaction: discord.Interaction, button: discord.ui.Button):
         has_tester_role = any(role.name == f"Tester {self.gamemode}" for role in interaction.user.roles)
         if not (has_tester_role or interaction.user.guild_permissions.administrator):
             await interaction.response.send_message("❌ Unauthorized staff!", ephemeral=True)
             return
-        await interaction.response.send_modal(FastResultModal(self.player_member, self.mc_name, self.region, self.gamemode, self.channel_id))
-
-    @discord.ui.button(label="📝 Detailed Report", style=discord.ButtonStyle.blurple, custom_id="tester_eval_detailed_btn")
-    async def open_detailed_eval(self, interaction: discord.Interaction, button: discord.ui.Button):
-        has_tester_role = any(role.name == f"Tester {self.gamemode}" for role in interaction.user.roles)
-        if not (has_tester_role or interaction.user.guild_permissions.administrator):
-            await interaction.response.send_message("❌ Unauthorized staff!", ephemeral=True)
-            return
-        await interaction.response.send_modal(DetailedResultModal(self.player_member, self.mc_name, self.region, self.gamemode, self.channel_id))
+        await interaction.response.send_modal(FastResultModal(self.player_member, self.mc_name, self.gamemode, self.channel_id))
 
 class StaffControlView(discord.ui.View):
     def __init__(self, gamemode: str):
@@ -438,10 +380,8 @@ class StaffControlView(discord.ui.View):
             player_member: discord.PermissionOverwrite(read_messages=True, send_messages=True)
         }
         match_room = await guild.create_text_channel(name=expected_room_name, category=category, overwrites=private_overwrites)
-        
-        player_region = current_player_data.get('region', 'EU')
-        eval_view = TesterPrivateEvalView(player_member, current_player_data['mc_name'], player_region, self.gamemode, match_room.id)
-        await match_room.send(content=f"⚡ **Match Room:** {player_member.mention} vs {interaction.user.mention} (Region: **{player_region}**)", view=eval_view)
+        eval_view = TesterPrivateEvalView(player_member, current_player_data['mc_name'], self.gamemode, match_room.id)
+        await match_room.send(content=f"⚡ **Match Room:** {player_member.mention} vs {interaction.user.mention}", view=eval_view)
         await log_to_staff(guild, f"Tester {interaction.user.mention} opened match room {match_room.mention} with {player_member.mention}.")
         await interaction.message.edit(embed=generate_queue_embed(self.gamemode), view=self)
 
@@ -455,124 +395,60 @@ class StaffControlView(discord.ui.View):
         await log_to_staff(interaction.guild, f"{interaction.user.mention} left session on **{self.gamemode}**.")
 
 class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
-    mc_name = discord.ui.TextInput(label="Minecraft Username", placeholder="e.g. Stev3_", required=True)
-    region = discord.ui.TextInput(label="Region", placeholder="e.g. EU, NA, ASIA...", default="EU", required=True)
-    
+    mc_name = discord.ui.TextInput(label="Enter your Minecraft Username", placeholder="e.g. Stev3_", required=True)
     def __init__(self, gamemode):
         super().__init__()
         self.gamemode = gamemode
 
     async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
         if len(queues[self.gamemode]) >= 20:
-            await interaction.followup.send("❌ Queue full.", ephemeral=True)
+            await interaction.response.send_message("❌ Queue full.", ephemeral=True)
             return
         if is_user_in_any_queue(user_id):
-            await interaction.followup.send("❌ Queued elsewhere.", ephemeral=True)
+            await interaction.response.send_message("❌ Queued elsewhere.", ephemeral=True)
             return
         remaining = get_remaining_cooldown(user_id)
         if remaining is not None:
-            await interaction.followup.send(f"❌ Cooldown active: {remaining}", ephemeral=True)
+            await interaction.response.send_message(f"❌ Cooldown active: {remaining}", ephemeral=True)
             return
-            
-        queues[self.gamemode].append({
-            'user_id': user_id, 
-            'mc_name': self.mc_name.value.strip(),
-            'region': self.region.value.upper().strip()
-        })
+        await interaction.response.defer(ephemeral=True)
+        queues[self.gamemode].append({'user_id': user_id, 'mc_name': self.mc_name.value})
         save_data()
-        
         if active_testers[self.gamemode] is None:
             asyncio.create_task(afk_queue_remover(user_id, self.gamemode, interaction.guild.id))
         waitlist_channel = discord.utils.get(interaction.guild.text_channels, name=f"waitlist-{self.gamemode.lower()}")
         if waitlist_channel:
             await waitlist_channel.set_permissions(interaction.user, read_messages=True, send_messages=False)
             await update_board_message(interaction.guild, self.gamemode)
-        await interaction.followup.send(f"✅ Sei entrato in coda per **{self.gamemode}** con successo!", ephemeral=True)
-
-class RetierModal(discord.ui.Modal, title="Retier Request"):
-    gamemode_input = discord.ui.TextInput(label="Gamemode to Retier", placeholder="e.g. Sword, Crystal...", required=True)
-    
-    async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        user_id = interaction.user.id
-        gm = self.gamemode_input.value.strip().capitalize()
-        
-        if gm not in GAMEMODES:
-            await interaction.followup.send(f"❌ Gamemode non valida. Scegli tra: {', '.join(GAMEMODES)}", ephemeral=True)
-            return
-            
-        rem_retire = get_remaining_retire_cooldown(user_id)
-        if rem_retire is not None:
-            await interaction.followup.send(f"❌ Devi aspettare ancora {rem_retire} prima di poterti ritirare di nuovo.", ephemeral=True)
-            return
-            
-        user_tests = last_tests.get(user_id, {})
-        if gm not in user_tests:
-            await interaction.followup.send(f"❌ Non hai registrato alcun test recente per la modalità **{gm}**.", ephemeral=True)
-            return
-            
-        test_info = user_tests[gm]
-        if datetime.utcnow() - test_info["date"] > timedelta(days=35):
-            await interaction.followup.send(f"❌ Il tuo ultimo test per **{gm}** risale a più di 35 giorni fa. Non puoi più ritirarti.", ephemeral=True)
-            return
-            
-        old_rank = test_info["rank"]
-        retired_role_name = f"R{old_rank} {gm}"
-        
-        guild = interaction.guild
-        member = interaction.user
-        
-        for role in member.roles:
-            if role.name.endswith(f" {gm}"):
-                try: await member.remove_roles(role)
-                except: pass
-                
-        role = discord.utils.get(guild.roles, name=retired_role_name)
-        if not role:
-            try:
-                role = await guild.create_role(name=retired_role_name, mentionable=True, color=discord.Color.light_gray())
-            except Exception:
-                pass
-        if role:
-            try: await member.add_roles(role)
-            except: pass
-            
-        retire_cooldowns[user_id] = datetime.utcnow() + timedelta(days=30)
-        save_data()
-        
-        await interaction.followup.send(f"✅ Ti sei ritirato con successo per **{gm}**. Ti è stato assegnato il ruolo grigetto: **{retired_role_name}**.", ephemeral=True)
-        await log_to_staff(guild, f"{member.mention} si è ritirato dalla modalità **{gm}** ricevendo il ruolo **{retired_role_name}**.")
 
 class GamemodeSelect(discord.ui.Select):
     def __init__(self):
         options = [discord.SelectOption(label=gm, emoji=GAMEMODE_EMOJIS[gm]) for gm in GAMEMODES]
-        super().__init__(placeholder="Choose a gamemode to test...", options=options)
+        super().__init__(placeholder="Choose a gamemode to test...", options=options, row=0)
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.send_modal(MinecraftNameModal(self.values[0]))
 
 class MainTicketView(discord.ui.View):
-    def __init__(self, user_id=None):
+    def __init__(self):
         super().__init__(timeout=None)
         self.add_item(GamemodeSelect())
+
+    @discord.ui.button(label="🔄 Retier", style=discord.ButtonStyle.secondary, custom_id="main_retier_btn", row=1)
+    async def retier_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        user_id = interaction.user.id
+        user_data = last_tested_data.get(user_id)
         
-        if user_id:
-            user_tests = last_tests.get(user_id, {})
-            eligible_for_retire = False
-            now = datetime.utcnow()
-            for gm, info in user_tests.items():
-                if now - info["date"] <= timedelta(days=35):
-                    eligible_for_retire = True
-                    break
-            if eligible_for_retire and user_id not in retire_cooldowns:
-                self.add_item(RetierButton())
-
-class RetierButton(discord.ui.Button):
-    def __init__(self):
-        super().__init__(label="Retier / Ritirati", style=discord.ButtonStyle.secondary, row=1)
-
-    async def callback(self, interaction: discord.Interaction):
+        # Mostra il pulsante o fai passare solo se idoneo (entro 35 giorni dall'ultimo test)
+        if not user_data:
+            await interaction.response.send_message("❌ You are not eligible for a retier (no recent test record found within 35 days).", ephemeral=True)
+            return
+            
+        last_time = datetime.fromisoformat(user_data["timestamp"])
+        if datetime.utcnow() - last_time > timedelta(days=35):
+            await interaction.response.send_message("❌ Your last test was more than 35 days ago. You can no longer retier.", ephemeral=True)
+            return
+            
         await interaction.response.send_modal(RetierModal())
 
 @bot.event
@@ -585,8 +461,7 @@ async def on_ready():
 
 @bot.tree.command(name="setup_panel", description="Generate the main booking panel")
 async def setup_panel(interaction: discord.Interaction):
-    view = MainTicketView(user_id=interaction.user.id)
-    await interaction.response.send_message(embed=discord.Embed(title="⚔️ Request a Tierlist Test", description="Select a mode or use Retier below if eligible.", color=0x5865f2), view=view)
+    await interaction.response.send_message(embed=discord.Embed(title="⚔️ Request a Tierlist Test", description="Select a mode or use the Retier option below if eligible.", color=0x5865f2), view=MainTicketView())
 
 @bot.tree.command(name="setup_board", description="Create the live board")
 async def setup_board(interaction: discord.Interaction, gamemode: str):
@@ -596,5 +471,4 @@ async def setup_board(interaction: discord.Interaction, gamemode: str):
     await waitlist_channel.send(embed=generate_queue_embed(gamemode), view=StaffControlView(gamemode))
     await interaction.delete_original_response()
 
-keep_alive()
 bot.run(os.environ.get("DISCORD_TOKEN"))
