@@ -39,9 +39,9 @@ STAFF_LOG_CHANNEL_NAME = "tester-logs"
 DB_FILE = "database.json"
 
 queues = {gm: [] for gm in GAMEMODES}
-cooldowns = {}          # user_id -> datetime (scadenza cooldown test)
-retirements = {}       # str(user_id) -> {gm: datetime_retirement}
-last_test_dates = {}   # str(user_id) -> {gm: datetime_last_test}
+cooldowns = {}          
+retirements = {}       
+last_test_dates = {}   
 active_testers = {gm: None for gm in GAMEMODES}
 
 def save_data():
@@ -155,57 +155,75 @@ async def afk_queue_remover(user_id, gamemode, guild_id):
                 except Exception: pass
 
 class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
-    def __init__(self, player_member, mc_name, gamemode, channel_id, region_val):
+    def __init__(self, player_member, mc_name, gamemode, channel_id, region_val, is_high):
         super().__init__()
         self.player_member = player_member
         self.mc_name = mc_name
         self.gamemode = gamemode
         self.channel_id = channel_id
         self.region_val = region_val
-        self.prev_rank = discord.ui.TextInput(label="Previous Rank", placeholder="e.g. Unranked", default="Unranked", required=True)
-        self.new_rank = discord.ui.TextInput(label="Rank Earned", placeholder="e.g. HT3, LT2", required=True)
-        self.add_item(self.prev_rank)
+        self.is_high = is_high
+
+        self.new_rank = discord.ui.TextInput(label="Rank Earned", placeholder="e.g. High Tier 3, HT2", required=True)
         self.add_item(self.new_rank)
+
+        if self.is_high:
+            # Campi specifici stile immagine per high-results
+            self.eval_status = discord.ui.TextInput(label="Evaluation Status", placeholder="Passed Evaluation / Failed Evaluation", default="Passed Evaluation", required=True)
+            self.fight_category = discord.ui.TextInput(label="Fight Category Title", placeholder="e.g. HT3 Fights", default="HT3 Fights", required=True)
+            self.fight_details = discord.ui.TextInput(label="Match Details", placeholder="Won 4-1 vs. opponent", default="Won 4-1 vs. ", required=True)
+            self.add_item(self.eval_status)
+            self.add_item(self.fight_category)
+            self.add_item(self.fight_details)
+        else:
+            self.prev_rank = discord.ui.TextInput(label="Previous Rank", placeholder="e.g. Unranked", default="Unranked", required=True)
+            self.add_item(self.prev_rank)
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         guild = interaction.guild
         rank_earned = self.new_rank.value.strip()
-        prev_rank_val = self.prev_rank.value.strip()
         clean_mc_name = self.mc_name.strip()
-        skin_url = "https://render.crafty.gg/3d/bust/866125ad5e2b474e987654b6138d4f45"
-        async with aiohttp.ClientSession() as session:
-            try:
-                async with session.get(f"https://api.mojang.com/users/profiles/minecraft/{clean_mc_name}") as r:
-                    if r.status == 200:
-                        data = await r.json()
-                        uuid = data.get("id")
-                        skin_url = f"https://render.crafty.gg/3d/bust/{uuid}"
-            except Exception:
-                skin_url = f"https://mc-heads.net/player/{clean_mc_name}/512.png"
-        
-        # Logica per determinare High-Tier (HT3 o superiore, HT1, HT2, HT3, LT1, LT2)
-        rank_lower = rank_earned.lower()
-        ht_keywords = ["ht1", "ht2", "ht3", "lt1", "lt2", "tier 1", "tier 2", "tier 3"]
-        is_high = any(k in rank_lower for k in ht_keywords)
-        channel_name = "🥇│hight-results" if is_high else "🏆│results"
-        
-        embed = discord.Embed(color=0x5865f2)
-        embed.set_author(name=f"{guild.name}'s Test Results 🏆", icon_url=guild.icon.url if guild.icon else None)
-        embed.set_thumbnail(url=skin_url)
-        embed.add_field(name="Tester:", value=interaction.user.mention, inline=False)
-        embed.add_field(name="Region:", value=self.region_val, inline=False)
-        embed.add_field(name="Username:", value=clean_mc_name, inline=False)
-        embed.add_field(name="Previous Rank:", value=prev_rank_val, inline=False)
-        embed.add_field(name="Rank Earned:", value=rank_earned, inline=False)
-        
-        target_channel = discord.utils.get(guild.text_channels, name=channel_name)
-        if target_channel:
-            msg = await target_channel.send(content=self.player_member.mention, embed=embed)
-            for emo in ["👑", "🥳", "😱", "😭", "😂", "💀"]:
-                try: await msg.add_reaction(emo)
-                except Exception: pass
-        
+
+        if self.is_high:
+            status_text = self.eval_status.value.strip()
+            category_text = self.fight_category.value.strip()
+            details_text = self.fight_details.value.strip()
+            
+            # Formattazione basata sull'immagine fornita
+            content_message = f"{self.player_member.mention} - {clean_mc_name} - Promoted to **{rank_earned}**\n\n__{status_text}__\n\n**{category_text}**\n> {details_text}"
+            target_channel = discord.utils.get(guild.text_channels, name="🥇│hight-results")
+            if target_channel:
+                await target_channel.send(content_message)
+        else:
+            prev_rank_val = self.prev_rank.value.strip()
+            skin_url = "https://render.crafty.gg/3d/bust/866125ad5e2b474e987654b6138d4f45"
+            async with aiohttp.ClientSession() as session:
+                try:
+                    async with session.get(f"https://api.mojang.com/users/profiles/minecraft/{clean_mc_name}") as r:
+                        if r.status == 200:
+                            data = await r.json()
+                            uuid = data.get("id")
+                            skin_url = f"https://render.crafty.gg/3d/bust/{uuid}"
+                except Exception:
+                    skin_url = f"https://mc-heads.net/player/{clean_mc_name}/512.png"
+
+            embed = discord.Embed(color=0x5865f2)
+            embed.set_author(name=f"{guild.name}'s Test Results 🏆", icon_url=guild.icon.url if guild.icon else None)
+            embed.set_thumbnail(url=skin_url)
+            embed.add_field(name="Tester:", value=interaction.user.mention, inline=False)
+            embed.add_field(name="Region:", value=self.region_val, inline=False)
+            embed.add_field(name="Username:", value=clean_mc_name, inline=False)
+            embed.add_field(name="Previous Rank:", value=prev_rank_val, inline=False)
+            embed.add_field(name="Rank Earned:", value=rank_earned, inline=False)
+
+            target_channel = discord.utils.get(guild.text_channels, name="🏆│results")
+            if target_channel:
+                msg = await target_channel.send(content=self.player_member.mention, embed=embed)
+                for emo in ["👑", "🥳", "😱", "😭", "😂", "💀"]:
+                    try: await msg.add_reaction(emo)
+                    except Exception: pass
+
         player_entry = next((p for p in queues[self.gamemode] if p['user_id'] == self.player_member.id), None)
         if player_entry:
             queues[self.gamemode].remove(player_entry)
@@ -213,19 +231,16 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
         now_utc = datetime.utcnow()
         cooldowns[self.player_member.id] = now_utc + timedelta(days=7)
         
-        # Aggiorna database per tracciare i 35 giorni per il retirement
         user_str = str(self.player_member.id)
         if user_str not in last_test_dates:
             last_test_dates[user_str] = {}
         last_test_dates[user_str][self.gamemode] = now_utc.isoformat()
         
-        # Se era ritirato, rimuovilo dal retirement visto che ha rifatto il test
         if user_str in retirements and self.gamemode in retirements[user_str]:
             del retirements[user_str][self.gamemode]
             
         save_data()
 
-        # Rimuovi ruoli precedenti della stessa gamemode
         for role in self.player_member.roles:
             if role.name.endswith(f" {self.gamemode}"):
                 try: await self.player_member.remove_roles(role)
@@ -262,7 +277,33 @@ class TesterPrivateEvalView(discord.ui.View):
         if not (has_tester_role or interaction.user.guild_permissions.administrator):
             await interaction.response.send_message("❌ Unauthorized staff!", ephemeral=True)
             return
-        await interaction.response.send_modal(FastResultModal(self.player_member, self.mc_name, self.gamemode, self.channel_id, self.region_val))
+        
+        # Chiediamo un input di prova temporaneo per capire se è high-tier (es. se contiene ht o lt1/lt2/ht3 ecc)
+        # Sfruttiamo un modale dinamico passandogli il controllo High-Tier
+        # Per semplicità, diamo la scelta direttamente nel modale o controlliamo le parole chiave all'invio.
+        # Qui facciamo un modale universale che si adatta o chiede direttamente. Usiamo una modale intelligente:
+        await interaction.response.send_modal(FastResultEvalRouter(self.player_member, self.mc_name, self.gamemode, self.channel_id, self.region_val))
+
+class FastResultEvalRouter(discord.ui.Modal, title="Select Evaluation Type"):
+    tier_input = discord.ui.TextInput(label="Rank Earned", placeholder="e.g. High Tier 3, HT2, LT4", required=True)
+
+    def __init__(self, player_member, mc_name, gamemode, channel_id, region_val):
+        super().__init__()
+        self.player_member = player_member
+        self.mc_name = mc_name
+        self.gamemode = gamemode
+        self.channel_id = channel_id
+        self.region_val = region_val
+
+    async def on_submit(self, interaction: discord.Interaction):
+        rank_val = self.tier_input.value.strip().lower()
+        ht_keywords = ["ht1", "ht2", "ht3", "lt1", "lt2", "high tier", "tier 1", "tier 2", "tier 3"]
+        is_high = any(k in rank_val for k in ht_keywords)
+        
+        # Passiamo al modale definitivo corretto
+        modal = FastResultModal(self.player_member, self.mc_name, self.gamemode, self.channel_id, self.region_val, is_high)
+        modal.new_rank.default = self.tier_input.value.strip()
+        await interaction.response.send_modal(modal)
 
 class StaffControlView(discord.ui.View):
     def __init__(self, gamemode: str):
@@ -388,7 +429,6 @@ class RetirementModal(discord.ui.Modal, title="Retirement Request"):
         retirements[user_str][self.gamemode] = datetime.utcnow().isoformat()
         save_data()
 
-        # Rimuove i ruoli di quella gamemode e assegna un ipotetico ruolo Retired se esiste, o pulisce
         for role in interaction.user.roles:
             if role.name.endswith(f" {self.gamemode}"):
                 try: await interaction.user.remove_roles(role)
@@ -423,7 +463,6 @@ class UnretierModal(discord.ui.Modal, title="Unretier Request"):
             del retirements[user_str][self.gamemode]
             save_data()
 
-        # Rimuove il ruolo Retired
         retired_role_name = f"Retired {self.gamemode}"
         r_role = discord.utils.get(interaction.guild.roles, name=retired_role_name)
         if r_role and r_role in interaction.user.roles:
@@ -442,14 +481,12 @@ class GamemodeSelect(discord.ui.Select):
         for gm in GAMEMODES:
             is_retired = user_str in retirements and gm in retirements[user_str]
             
-            # Controlla se sono passati 35 giorni dall'ultimo test per il Retirement
             can_retire = False
             if user_str in last_test_dates and gm in last_test_dates[user_str]:
                 last_test_time = datetime.fromisoformat(last_test_dates[user_str][gm])
                 if (now - last_test_time).days >= 35 and not is_retired:
                     can_retire = True
 
-            # Controlla se sono passati 35 giorni dal retirement per l'Unretier
             can_unretier = False
             if is_retired:
                 ret_time = datetime.fromisoformat(retirements[user_str][gm])
