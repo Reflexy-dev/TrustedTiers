@@ -9,14 +9,15 @@ from flask import Flask
 from threading import Thread
 from datetime import datetime, timedelta
 
+# Configurazione Flask per mantenere attivo il Web Service su Render
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "Bot is online!"
+    return "Bot is online and running!"
 
 def run():
-    port = int(os.environ.get("PORT", 8080))
+    port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
 
 def keep_alive():
@@ -468,6 +469,7 @@ class MainTicketView(discord.ui.View):
 async def on_ready():
     print(f"Logged in as {bot.user.name}")
     load_data()
+    keep_alive()  # Avvia Flask per soddisfare il controllo porte di Render
     for gm in GAMEMODES: bot.add_view(StaffControlView(gm))
     bot.add_view(MainTicketView())
     await bot.tree.sync()
