@@ -166,7 +166,7 @@ class FastResultModal(discord.ui.Modal, title="Test Evaluation"):
         
         self.region = discord.ui.TextInput(label="Region", placeholder="e.g. EU, NA", default=region_val, required=True)
         self.status = discord.ui.TextInput(label="Result Status", placeholder="Passed Evaluation / Failed", default="Passed Evaluation", required=True)
-        self.new_rank = discord.ui.TextInput(label="New Rank (if passed)", placeholder="e.g. High Tier 3, LT2", default="High Tier 3", required=False)
+        self.new_rank = discord.ui.TextInput(label="New Rank (if passed)", placeholder="e.g. HT3, LT2", default="HT3", required=False)
         self.fights_details = discord.ui.TextInput(label="Fights / Details", placeholder="e.g. Won 4-1 vs. siemprelloro", default="Won 4-1", required=True)
         
         self.add_item(self.region)
@@ -199,14 +199,11 @@ class FastResultModal(discord.ui.Modal, title="Test Evaluation"):
         embed.set_thumbnail(url=skin_url)
         embed.description = f"{interaction.user.mention} – **{clean_mc_name}** – Promoted to **{rank_earned}**\n\n**{status_val}**\n\n**{self.gamemode} Fights**\n| {fights_val}"
         
-        # Logica per determinare se va in hight-results (sopra HT3, quindi HT1, HT2, LT1, LT2, ecc.)
-        # Controlliamo se contiene 1 o 2 (es. HT1, HT2, LT1, LT2) o se è esplicitamente sopra HT3
+        # Logica: va in hight-results SOLO se è SOPRA HT3 (es. HT1, HT2, LT1, LT2)
         upper_rank = rank_earned.upper()
         is_above_ht3 = False
-        if any(k in upper_rank for k in ["HT1", "HT2", "LT1", "LT2", "TIER 1", "TIER 2"]):
+        if any(k in upper_rank for k in ["HT1", "HT2", "LT1", "LT2"]):
             is_above_ht3 = True
-        elif "HT3" in upper_rank or "LT3" in upper_rank or "HT4" in upper_rank or "HT5" in upper_rank or "LT4" in upper_rank or "LT5" in upper_rank:
-            is_above_ht3 = False
             
         channel_name = "🥇│hight-results" if is_above_ht3 else "🏆│results"
         
