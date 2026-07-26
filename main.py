@@ -38,6 +38,9 @@ GAMEMODES = list(GAMEMODE_EMOJIS.keys())
 STAFF_LOG_CHANNEL_NAME = "tester-logs"
 DB_FILE = "database.json"
 
+# INSERISCI QUI L'ID DEL TUO SERVER DISCORD (per sincronizzare subito i comandi)
+GUILD_ID = discord.Object(id=IL_TUO_ID_SERVER_QUI)
+
 queues = {gm: [] for gm in GAMEMODES}
 cooldowns = {}
 retirements = {}  # {user_id: {gamemode: retirement_datetime}}
@@ -261,7 +264,6 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
 
         await update_board_message(guild, self.gamemode)
         
-        # Rimuovi i permessi dal canale waitlist per l'utente testato
         waitlist_channel = discord.utils.get(guild.text_channels, name=f"waitlist-{self.gamemode.lower()}")
         if waitlist_channel:
             try: await waitlist_channel.set_permissions(self.player_member, overwrite=None)
@@ -435,7 +437,6 @@ class RetireModal(discord.ui.Modal, title="Retirement Request"):
             user_retirements[gm] = now
             success.append(gm)
 
-            # Aggiunge la 'R' al ruolo del player per questa modalità
             for role in interaction.user.roles:
                 if role.name.endswith(f" {gm}") and not role.name.startswith("R"):
                     try:
@@ -481,7 +482,6 @@ class UnretireModal(discord.ui.Modal, title="Unretirement Request"):
             del user_retirements[gm]
             success.append(gm)
 
-            # Rimuove la 'R' dal ruolo del player
             for role in interaction.user.roles:
                 if role.name.endswith(f" {gm}") and role.name.startswith("R"):
                     try:
@@ -519,9 +519,14 @@ class MainTicketView(discord.ui.View):
 async def on_ready():
     print(f"Logged in as {bot.user.name}")
     load_data()
-    for gm in GAMEMODES: bot.add_view(StaffControlView(gm))
+    for gm in GAMEMODES: 
+        bot.add_view(StaffControlView(gm))
     bot.add_view(MainTicketView())
-    await bot.tree.sync()
+    
+    # Sincronizzazione immediata sul server configurato
+    bot.tree.copy_global_to(guild=GUILD_ID)
+    await bot.tree.sync(guild=GUILD_ID)
+    print("Comandi sincronizzati istantaneamente sul server!")
 
 @bot.tree.command(name="setup_panel", description="Generate the main booking panel")
 async def setup_panel(interaction: discord.Interaction):
@@ -538,7 +543,6 @@ async def setup_board(interaction: discord.Interaction, gamemode: str):
     category = discord.utils.get(interaction.guild.categories, name="🎯Tierlist") or await interaction.guild.create_category("🎯Tierlist")
     waitlist_channel = await interaction.guild.create_text_channel(name=f"waitlist-{gamemode.lower()}", category=category)
     
-    # Nasconde il canale a tutti di default tranne ai tester della modalità corrispondente
     for role in interaction.guild.roles:
         if role.name == f"Tester {gamemode}":
             await waitlist_channel.set_permissions(role, read_messages=True, send_messages=True)
@@ -569,13 +573,12 @@ async def leave_cmd(interaction: discord.Interaction):
     else:
         await interaction.response.send_message("❌ You are not in any queue.", ephemeral=True)
 
-@bot.tree.command(name="kickqueue", description="Kick a user from a specific gamemode queue (Staff only)")
+@bot.tree.command(name="kickqueue", description="Kick a user from your gamemode queue (Staff only)")
 @app_commands.describe(member="The member to kick")
 async def kick_queue(interaction: discord.Interaction, member: discord.Member):
     user_roles = [r.name for r in interaction.user.roles]
     target_gamemode = None
     
-    # Determina la modalità del tester in base al ruolo (es. "Tester Sword")
     for gm in GAMEMODES:
         if f"Tester {gm}" in user_roles:
             target_gamemode = gm
@@ -607,7 +610,7 @@ async def kick_queue(interaction: discord.Interaction, member: discord.Member):
     if not kicked:
         await interaction.response.send_message("❌ This member is not in your queue.", ephemeral=True)
 
-@bot.tree.command(name="retier", description="Retire from a gamemode test status after 35 days")
+@bot.tree.command(name="retire", description="Retire from a gamemode test status after 35 days")
 async def retire_cmd(interaction: discord.Interaction):
     await interaction.response.send_modal(RetireModal())
 
