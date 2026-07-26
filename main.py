@@ -518,10 +518,12 @@ async def on_ready():
     for gm in GAMEMODES: bot.add_view(StaffControlView(gm))
     bot.add_view(MainTicketView())
     
-    # Sincronizzazione globale standard
+    # Sincronizzazione automatica e istantanea su tutti i server del bot
     try:
-        synced = await bot.tree.sync()
-        print(f"Synced {len(synced)} global commands successfully!")
+        for guild in bot.guilds:
+            bot.tree.copy_global_to(guild=guild)
+            synced = await bot.tree.sync(guild=guild)
+            print(f"Synced {len(synced)} commands instantly to guild: {guild.name}")
     except Exception as e:
         print(f"Failed to sync commands: {e}")
 
