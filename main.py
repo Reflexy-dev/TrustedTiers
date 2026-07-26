@@ -517,7 +517,12 @@ async def on_ready():
     load_data()
     for gm in GAMEMODES: bot.add_view(StaffControlView(gm))
     bot.add_view(MainTicketView())
-    await bot.tree.sync()
+    
+    # Sincronizzazione immediata dei comandi su tutte le gilde connesse
+    for guild in bot.guilds:
+        bot.tree.copy_global_to(guild=guild)
+        await bot.tree.sync(guild=guild)
+    print("Slash commands synced instantly!")
 
 @bot.tree.command(name="setup_panel", description="Generate the main booking panel")
 async def setup_panel(interaction: discord.Interaction):
