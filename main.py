@@ -518,11 +518,12 @@ async def on_ready():
     for gm in GAMEMODES: bot.add_view(StaffControlView(gm))
     bot.add_view(MainTicketView())
     
-    # Sincronizzazione immediata dei comandi su tutte le gilde connesse
-    for guild in bot.guilds:
-        bot.tree.copy_global_to(guild=guild)
-        await bot.tree.sync(guild=guild)
-    print("Slash commands synced instantly!")
+    # Sincronizzazione globale dei comandi (senza bisogno di ID server)
+    try:
+        synced = await bot.tree.sync()
+        print(f"Synced {len(synced)} global commands successfully!")
+    except Exception as e:
+        print(f"Failed to sync commands: {e}")
 
 @bot.tree.command(name="setup_panel", description="Generate the main booking panel")
 async def setup_panel(interaction: discord.Interaction):
@@ -601,4 +602,5 @@ async def unretier_command(interaction: discord.Interaction):
         return
     await interaction.response.send_modal(UnretierModal(eligible))
 
+keep_alive()
 bot.run(os.environ.get("DISCORD_TOKEN"))
