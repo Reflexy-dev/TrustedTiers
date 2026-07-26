@@ -38,9 +38,6 @@ GAMEMODES = list(GAMEMODE_EMOJIS.keys())
 STAFF_LOG_CHANNEL_NAME = "tester-logs"
 DB_FILE = "database.json"
 
-# INSERISCI QUI L'ID DEL TUO SERVER DISCORD (per sincronizzare subito i comandi)
-GUILD_ID = discord.Object(id=IL_TUO_ID_SERVER_QUI)
-
 queues = {gm: [] for gm in GAMEMODES}
 cooldowns = {}
 retirements = {}  # {user_id: {gamemode: retirement_datetime}}
@@ -523,10 +520,12 @@ async def on_ready():
         bot.add_view(StaffControlView(gm))
     bot.add_view(MainTicketView())
     
-    # Sincronizzazione immediata sul server configurato
-    bot.tree.copy_global_to(guild=GUILD_ID)
-    await bot.tree.sync(guild=GUILD_ID)
-    print("Comandi sincronizzati istantaneamente sul server!")
+    # Sincronizzazione globale pulita
+    try:
+        synced = await bot.tree.sync()
+        print(f"Sincronizzati {len(synced)} comandi globalmente.")
+    except Exception as e:
+        print(f"Errore durante la sincronizzazione: {e}")
 
 @bot.tree.command(name="setup_panel", description="Generate the main booking panel")
 async def setup_panel(interaction: discord.Interaction):
@@ -618,4 +617,5 @@ async def retire_cmd(interaction: discord.Interaction):
 async def unretire_cmd(interaction: discord.Interaction):
     await interaction.response.send_modal(UnretireModal())
 
+keep_alive()
 bot.run(os.environ.get("DISCORD_TOKEN"))
