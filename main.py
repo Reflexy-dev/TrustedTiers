@@ -10,6 +10,7 @@ from threading import Thread
 from datetime import datetime, timedelta
 
 app = Flask('')
+
 @app.route('/')
 def home():
     return "Bot is online!"
@@ -87,8 +88,8 @@ def is_user_in_any_queue(user_id):
     return False
 
 def is_tester_active_anywhere(user_id):
-    for gm, tester_id in active_testers.items():
-        if tester_id == user_id:
+    for gm, active_id in active_testers.items():
+        if active_id == user_id:
             return True
     return False
 
@@ -154,12 +155,16 @@ async def afk_queue_remover(user_id, gamemode, guild_id):
             queues[gamemode].remove(player_entry)
             save_data()
             await update_board_message(guild, gamemode)
+            
             waitlist_channel = discord.utils.get(guild.text_channels, name=f"waitlist-{gamemode.lower()}")
+            if waitlist_channel:
+                member_obj = guild.get_member(user_id)
+                if member_obj:
+                    try: await waitlist_channel.set_permissions(member_obj, overwrite=None)
+                    except Exception: pass
+
             member = guild.get_member(user_id)
             if member:
-                if waitlist_channel:
-                    try: await waitlist_channel.set_permissions(member, overwrite=None)
-                    except Exception: pass
                 try: await member.send(f"⚠️ You have been removed from the **{gamemode}** queue due to inactivity.")
                 except Exception: pass
 
@@ -298,14 +303,14 @@ class StaffControlView(discord.ui.View):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         has_role = any(role.name == f"Tester {self.gamemode}" for role in interaction.user.roles)
         if not (has_role or interaction.user.guild_permissions.administrator):
-            await interaction.response.send_message(f"❌ You do not have the 'Tester {self.gamemode}' role required to manage this board.", ephemeral=True)
+            await interaction.response.send_message("❌ You are not authorized for this gamemode.", ephemeral=True)
             return False
         return True
 
     @discord.ui.button(label="Join as Tester", style=discord.ButtonStyle.blurple)
     async def join_tester_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if is_tester_active_anywhere(interaction.user.id):
-            await interaction.response.send_message("❌ You are already active as a tester in another gamemode queue.", ephemeral=True)
+            await interaction.response.send_message("❌ You are already active as a tester in another gamemode.", ephemeral=True)
             return
         if active_testers[self.gamemode] is not None:
             await interaction.response.send_message("❌ A tester is already active for this gamemode.", ephemeral=True)
@@ -317,7 +322,7 @@ class StaffControlView(discord.ui.View):
     @discord.ui.button(label="Next Player", style=discord.ButtonStyle.green)
     async def next_player_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if active_testers[self.gamemode] != interaction.user.id and not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("❌ Join this queue first.", ephemeral=True)
+            await interaction.response.send_message("❌ You must join as a tester first.", ephemeral=True)
             return
         if not queues[self.gamemode]:
             await interaction.response.send_message("❌ Empty queue.", ephemeral=True)
@@ -343,11 +348,16 @@ class StaffControlView(discord.ui.View):
 
         private_overwrites = {
             guild.default_role: discord.PermissionOverwrite(read_messages=False),
-            guild.me: discord.PermissionOverwrite(read_messages=False),
-            interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
-            player_member: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+            player_member: discord.PermissionOverwrite(read_messages=True, send_messages=True),
+            interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True)
         }
         match_room = await guild.create_text_channel(name=expected_room_name, category=category, overwrites=private_overwrites)
+        
+        waitlist_channel = discord.utils.get(guild.text_channels, name=f"waitlist-{self.gamemode.lower()}")
+        if waitlist_channel:
+            try: await waitlist_channel.set_permissions(player_member, overwrite=None)
+            except Exception: pass
+
         eval_view = TesterPrivateEvalView(player_member, current_player_data['mc_name'], self.gamemode, match_room.id, current_player_data.get('region', 'EU'))
         await match_room.send(content=f"⚡ **Match Room:** {player_member.mention} vs {interaction.user.mention}", view=eval_view)
         await log_to_staff(guild, f"Tester {interaction.user.mention} opened match room {match_room.mention} with {player_member.mention}.")
@@ -356,7 +366,7 @@ class StaffControlView(discord.ui.View):
     @discord.ui.button(label="Leave Session", style=discord.ButtonStyle.red)
     async def leave_session_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if active_testers[self.gamemode] != interaction.user.id and not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("❌ Not active.", ephemeral=True)
+            await interaction.response.send_message("❌ You are not the active tester here.", ephemeral=True)
             return
         active_testers[self.gamemode] = None
         await interaction.response.edit_message(embed=generate_queue_embed(self.gamemode), view=self)
@@ -378,7 +388,7 @@ class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
             await interaction.response.send_message("❌ Queue full.", ephemeral=True)
             return
         if is_user_in_any_queue(user_id):
-            await interaction.response.send_message("❌ Queued elsewhere.", ephemeral=True)
+            await interaction.response.send_message("❌ You are already in a queue.", ephemeral=True)
             return
         
         if not is_owner:
@@ -401,9 +411,6 @@ class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
         waitlist_channel = discord.utils.get(interaction.guild.text_channels, name=f"waitlist-{self.gamemode.lower()}")
         if waitlist_channel:
             await waitlist_channel.set_permissions(interaction.user, read_messages=True, send_messages=False)
-            tester_role = discord.utils.get(interaction.guild.roles, name=f"Tester {self.gamemode}")
-            if tester_role:
-                await waitlist_channel.set_permissions(tester_role, read_messages=True, send_messages=True)
             await update_board_message(interaction.guild, self.gamemode)
         await interaction.followup.send("✅ Successfully joined the queue!", ephemeral=True)
 
@@ -493,12 +500,9 @@ class GamemodeSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         choice = self.values[0]
-        self.values = []
-        await interaction.response.send_modal(MinecraftNameModal(choice))
-        try:
-            await interaction.message.edit(view=MainTicketView())
-        except Exception:
-            pass
+        view = MainTicketView() # Rigenera la view per resettare il menu a tendina
+        await interaction.response.edit_message(view=view)
+        await interaction.followup.send_modal(MinecraftNameModal(choice))
 
 class MainTicketView(discord.ui.View):
     def __init__(self):
@@ -528,13 +532,14 @@ async def setup_board(interaction: discord.Interaction, gamemode: str):
     category = discord.utils.get(interaction.guild.categories, name="🎯Tierlist") or await interaction.guild.create_category("🎯Tierlist")
     
     overwrites = {
-        interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False),
-        interaction.guild.me: discord.PermissionOverwrite(read_messages=True)
+        interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False)
     }
+    
+    # Trova i ruoli tester per questa gamemode e assegna i permessi corretti alla waitlist
     tester_role = discord.utils.get(interaction.guild.roles, name=f"Tester {gamemode}")
     if tester_role:
         overwrites[tester_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
-
+    
     waitlist_channel = await interaction.guild.create_text_channel(name=f"waitlist-{gamemode.lower()}", category=category, overwrites=overwrites)
     await waitlist_channel.send(embed=generate_queue_embed(gamemode), view=StaffControlView(gamemode))
     await interaction.delete_original_response()
@@ -562,7 +567,7 @@ async def leave_cmd(interaction: discord.Interaction):
 
 @bot.tree.command(name="kickqueue", description="Kick a user from a specific gamemode queue (Staff only)")
 @app_commands.describe(gamemode="The gamemode queue", member="The member to kick")
-async def kickqueue(interaction: discord.Interaction, gamemode: str, member: discord.Member):
+async def kick_queue(interaction: discord.Interaction, gamemode: str, member: discord.Member):
     has_role = any(role.name == f"Tester {gamemode}" for role in interaction.user.roles)
     if not (has_role or interaction.user.guild_permissions.administrator):
         await interaction.response.send_message("❌ You are not authorized to manage this queue.", ephemeral=True)
