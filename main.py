@@ -518,7 +518,7 @@ async def on_ready():
     for gm in GAMEMODES: bot.add_view(StaffControlView(gm))
     bot.add_view(MainTicketView())
     
-    # Sincronizzazione globale dei comandi (senza bisogno di ID server)
+    # Sincronizzazione globale standard
     try:
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} global commands successfully!")
