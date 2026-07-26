@@ -116,7 +116,7 @@ def generate_queue_embed(gamemode):
     title_status = "Tester(s) Available!" if active_testers[gamemode] else "Waiting for Tester(s)..."
     queue_list = ""
     if not queues[gamemode]:
-                        queue_list = "*Empty*"
+        queue_list = "*Empty*"
     else:
         for idx, player in enumerate(queues[gamemode], start=1):
             queue_list += f"{idx}. <@{player['user_id']}> ({player.get('region', 'N/A')})\n"
@@ -156,7 +156,6 @@ async def afk_queue_remover(user_id, gamemode, guild_id):
 
 def is_high_tier(rank_earned: str) -> bool:
     rank_lower = rank_earned.lower()
-    # Controlla se è High Tier 3 (HT3), Tier 2, Tier 1 o superiore
     high_keywords = ["lt1", "ht1", "lt2", "ht2", "ht3", "tier 1", "tier 2", "tier 3"]
     if any(k in rank_lower for k in high_keywords):
         if "ht3" in rank_lower or "tier 3" in rank_lower:
@@ -205,11 +204,16 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
             except Exception:
                 skin_url = f"https://mc-heads.net/player/{clean_mc_name}/512.png"
 
-        embed = discord.Embed(color=0x5865f2)
         if is_high:
-            embed.description = f"{self.player_member.mention} - {clean_mc_name} - Promoted to **{rank_earned}**\n\n**Passed Evaluation**\n\n**{rank_earned} Fights**\n| {score_val}"
-            channel_name = "🥇│hight-results"
+            content_msg = f"{self.player_member.mention} - {clean_mc_name} - Promoted to **{rank_earned}**\n\n**Passed Evaluation**\n\n**{rank_earned} Fights**\n| {score_val}"
+            target_channel = discord.utils.get(guild.text_channels, name="🥇│hight-results")
+            if target_channel:
+                msg = await target_channel.send(content=content_msg)
+                for emo in ["👑", "🥳", "😱", "😭", "😂", "💀"]:
+                    try: await msg.add_reaction(emo)
+                    except Exception: pass
         else:
+            embed = discord.Embed(color=0x5865f2)
             embed.set_author(name=f"{guild.name}'s Test Results 🏆", icon_url=guild.icon.url if guild.icon else None)
             embed.set_thumbnail(url=skin_url)
             embed.add_field(name="Tester:", value=interaction.user.mention, inline=False)
@@ -217,14 +221,12 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
             embed.add_field(name="Username:", value=f"{clean_mc_name}", inline=False)
             embed.add_field(name="Previous Rank:", value=prev_rank_val, inline=False)
             embed.add_field(name="Rank Earned:", value=rank_earned, inline=False)
-            channel_name = "🏆│results"
-
-        target_channel = discord.utils.get(guild.text_channels, name=channel_name)
-        if target_channel:
-            msg = await target_channel.send(content=None if is_high else self.player_member.mention, embed=embed)
-            for emo in ["👑", "🥳", "😱", "😭", "😂", "💀"]:
-                try: await msg.add_reaction(emo)
-                except Exception: pass
+            target_channel = discord.utils.get(guild.text_channels, name="🏆│results")
+            if target_channel:
+                msg = await target_channel.send(content=self.player_member.mention, embed=embed)
+                for emo in ["👑", "🥳", "😱", "😭", "😂", "💀"]:
+                    try: await msg.add_reaction(emo)
+                    except Exception: pass
 
         player_entry = next((p for p in queues[self.gamemode] if p['user_id'] == self.player_member.id), None)
         if player_entry:
@@ -405,13 +407,7 @@ class RetireModal(discord.ui.Modal, title="Retirement Request"):
                 failed.append(f"{gm} (Invalid)")
                 continue
             
-            cd = cooldowns.get(user_id)
-            # Se ha fatto un test (cooldown attivo o passato da almeno 35 giorni dall'ultimo test)
-            # Semplificazione: verificiamo se l'utente ha un record di cooldown o ruolo e sono passati 35 giorni
             user_cd_expiry = cooldowns.get(user_id)
-            # Controllo se l'utente è idoneo (es. sono passati 35 giorni dall'ultimo test)
-            # Se cooldown scade tra X giorni, significa che il test è stato fatto di recente. 
-            # L'utente può ritirarsi SOLO 35 giorni DOPO il test.
             if user_cd_expiry and now < user_cd_expiry:
                 failed.append(f"{gm} (Must wait 35 days after your test)")
                 continue
@@ -474,7 +470,7 @@ class GamemodeSelect(discord.ui.Select):
         options = [discord.SelectOption(label=gm, emoji=GAMEMODE_EMOJIS[gm]) for gm in GAMEMODES]
         options.append(discord.SelectOption(label="Retirement", emoji="🛑", description="Retire from tested gamemodes"))
         options.append(discord.SelectOption(label="Unretire", emoji="♻️", description="Cancel retirement after 35 days"))
-        super().__init__(placeholder="Choose an option or gamemode...", options=options)
+        super().__init__(placeholder="Choose a gamemode to test...", options=options)
 
     async def callback(self, interaction: discord.Interaction):
         choice = self.values[0]
@@ -500,7 +496,12 @@ async def on_ready():
 
 @bot.tree.command(name="setup_panel", description="Generate the main booking panel")
 async def setup_panel(interaction: discord.Interaction):
-    await interaction.response.send_message(embed=discord.Embed(title="⚔️ Request a Tierlist Test", description="Select a mode or manage your retirement.", color=0x5865f2), view=MainTicketView())
+    embed = discord.Embed(
+        title="⚔️ Request a Tierlist Test",
+        description="Select a mode from the dropdown menu below to register for testing.",
+        color=0x5865f2
+    )
+    await interaction.response.send_message(embed=embed, view=MainTicketView())
 
 @bot.tree.command(name="setup_board", description="Create the live board")
 async def setup_board(interaction: discord.Interaction, gamemode: str):
