@@ -41,7 +41,6 @@ active_testers = {gm: None for gm in GAMEMODES}
 cooldowns = {}
 CATEGORY_NAME = "🎯Tierlist"
 
-# Mappa della progressione ordinata dei Tier
 TIER_ORDER = [
     "Unranked", "LT5", "HT5", "LT4", "HT4", "LT3", "HT3", "LT2", "HT2", "LT1", "HT1"
 ]
@@ -49,7 +48,6 @@ TIER_ORDER = [
 HIGH_TIERS = ["HT3", "LT2", "HT2", "LT1", "HT1"]
 
 def get_current_rank(member: discord.Member, gamemode: str) -> str:
-    """Rileva il rank attuale del giocatore sulla base dei ruoli che possiede."""
     for role in member.roles:
         for t in TIER_ORDER:
             if role.name == f"{t} {gamemode}":
@@ -57,7 +55,6 @@ def get_current_rank(member: discord.Member, gamemode: str) -> str:
     return "Unranked"
 
 def is_valid_promotion(current_rank: str, target_rank: str) -> (bool, str):
-    """Verifica se il passaggio di livello è consentito secondo le regole rigide (1 step alla volta)."""
     c_rank = current_rank.upper().strip()
     t_rank = target_rank.upper().strip()
 
@@ -68,11 +65,11 @@ def is_valid_promotion(current_rank: str, target_rank: str) -> (bool, str):
     t_idx = TIER_ORDER.index(t_rank)
 
     if t_idx < c_idx:
-        return False, f"Non puoi retrocedere un giocatore da `{c_rank}` a `{t_rank}` tramite Test!"
+        return False, f"You cannot demote a player from `{c_rank}` to `{t_rank}` through tests!"
 
     if t_idx > c_idx + 1:
         next_step = TIER_ORDER[c_idx + 1]
-        return False, f"Progressione non valida! Il giocatore è `{c_rank}` e può avanzare solo al grado successivo (`{next_step}`). Non può saltare direttamente a `{t_rank}`!"
+        return False, f"Invalid progression! The player is `{c_rank}` and can only advance to the next rank (`{next_step}`). They cannot skip directly to `{t_rank}`!"
 
     return True, ""
 
@@ -90,7 +87,7 @@ async def check_queue_timeouts():
                 try:
                     user = bot.get_user(player['user_id'])
                     if user:
-                        await user.send(f"⏱️ Sei stato rimosso dalla coda **{gm}** perché è trascorsa 1 ora senza trovare un match.")
+                        await user.send(f"⏱️ You have been removed from the **{gm}** queue because 1 hour passed without a match.")
                 except Exception:
                     pass
             else:
@@ -109,12 +106,12 @@ async def before_timeouts():
 # --- MODALE INSERIMENTO NICK MINECRAFT ---
 class MinecraftNameModal(discord.ui.Modal):
     def __init__(self, gamemode: str):
-        super().__init__(title=f"Coda: {gamemode}")
+        super().__init__(title=f"Queue: {gamemode}")
         self.gamemode = gamemode
 
         self.mc_name = discord.ui.TextInput(
             label="Minecraft Username",
-            placeholder="Es: Steve...",
+            placeholder="Ex: Steve...",
             required=True
         )
         self.region = discord.ui.TextInput(
@@ -131,12 +128,12 @@ class MinecraftNameModal(discord.ui.Modal):
         user_id = interaction.user.id
 
         if len(queues[self.gamemode]) >= 20:
-            await interaction.response.send_message("❌ La coda per questa modalità è piena (max 20)!", ephemeral=True)
+            await interaction.response.send_message("❌ The queue for this gamemode is full (max 20)!", ephemeral=True)
             return
 
         for gm, q in queues.items():
             if any(p['user_id'] == user_id for p in q):
-                await interaction.response.send_message(f"❌ Sei già presente nella coda di **{gm}**!", ephemeral=True)
+                await interaction.response.send_message(f"❌ You are already in the queue for **{gm}**!", ephemeral=True)
                 return
 
         player_data = {
@@ -147,7 +144,7 @@ class MinecraftNameModal(discord.ui.Modal):
         }
 
         queues[self.gamemode].append(player_data)
-        await interaction.response.send_message(f"✅ Ti sei iscritto con successo alla coda **{self.gamemode}**!", ephemeral=True)
+        await interaction.response.send_message(f"✅ You have successfully joined the **{self.gamemode}** queue!", ephemeral=True)
         await update_board_message(interaction.guild, self.gamemode)
 
 
@@ -170,7 +167,7 @@ class StandardResultModal(discord.ui.Modal):
         )
         self.new_rank = discord.ui.TextInput(
             label="New Rank Earned (LT5, HT5, LT4, HT4, LT3)",
-            placeholder="Es: LT4 o Unranked se fallito",
+            placeholder="Ex: LT4",
             required=True
         )
         self.add_item(self.prev_rank)
@@ -180,13 +177,17 @@ class StandardResultModal(discord.ui.Modal):
         rank_earned = self.new_rank.value.strip().upper()
         prev_rank_val = self.prev_rank.value.strip().upper()
 
+        if rank_earned == "UNRANKED":
+            await interaction.response.send_message("❌ A player being tested cannot be Unranked! Please enter a valid earned tier.", ephemeral=True)
+            return
+
         valid, err_msg = is_valid_promotion(prev_rank_val, rank_earned)
         if not valid:
             await interaction.response.send_message(f"❌ {err_msg}", ephemeral=True)
             return
 
         if rank_earned in HIGH_TIERS:
-            await interaction.response.send_message(f"❌ Il grado `{rank_earned}` appartiene ai High Tiers! Usa il pulsante **HighTierTest**.", ephemeral=True)
+            await interaction.response.send_message(f"❌ The rank `{rank_earned}` belongs to High Tiers! Please use the **HighTierTest** button.", ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=True)
@@ -210,21 +211,20 @@ class StandardResultModal(discord.ui.Modal):
                 except Exception: pass
 
         queues[self.gamemode] = [p for p in queues[self.gamemode] if p['user_id'] != self.player_member.id]
-        cooldowns[self.player_member.id] = datetime.datetime.utcnow() + datetime.timedelta(days=7) # Cooldown settato a 7 giorni
+        cooldowns[self.player_member.id] = datetime.datetime.utcnow() + datetime.timedelta(days=7)
 
         for role in self.player_member.roles:
             if self.gamemode in role.name:
                 try: await self.player_member.remove_roles(role)
                 except: pass
 
-        if rank_earned != "UNRANKED":
-            role_name = f"{rank_earned} {self.gamemode}"
-            role = discord.utils.get(guild.roles, name=role_name)
-            if not role:
-                role = await guild.create_role(name=role_name, mentionable=True, color=discord.Color.default())
-            if role:
-                try: await self.player_member.add_roles(role)
-                except: pass
+        role_name = f"{rank_earned} {self.gamemode}"
+        role = discord.utils.get(guild.roles, name=role_name)
+        if not role:
+            role = await guild.create_role(name=role_name, mentionable=True, color=discord.Color.default())
+        if role:
+            try: await self.player_member.add_roles(role)
+            except: pass
 
         await update_board_message(guild, self.gamemode)
         
@@ -253,12 +253,12 @@ class HighTierResultModal(discord.ui.Modal):
         )
         self.new_rank = discord.ui.TextInput(
             label="New Rank Earned (HT3, LT2, HT2, LT1, HT1)",
-            placeholder="Es: HT3",
+            placeholder="Ex: HT3",
             required=True
         )
         self.match_score = discord.ui.TextInput(
             label="Match Score",
-            placeholder="Es: 4-1",
+            placeholder="Ex: 4-1",
             required=True
         )
 
@@ -271,9 +271,12 @@ class HighTierResultModal(discord.ui.Modal):
         prev_rank_val = self.prev_rank.value.strip().upper()
         score_val = self.match_score.value.strip()
 
-        # Verifica che il player sia almeno LT3 per provare HT3
+        if rank_earned == "UNRANKED":
+            await interaction.response.send_message("❌ A player being tested cannot be Unranked! Please enter a valid earned tier.", ephemeral=True)
+            return
+
         if prev_rank_val not in TIER_ORDER or TIER_ORDER.index(prev_rank_val) < TIER_ORDER.index("LT3"):
-            await interaction.response.send_message(f"❌ Il giocatore deve essere almeno **LT3** per partecipare ad un High Tier Test! Rank attuale: `{prev_rank_val}`.", ephemeral=True)
+            await interaction.response.send_message(f"❌ The player must be at least **LT3** to participate in a High Tier Test! Current rank: `{prev_rank_val}`.", ephemeral=True)
             return
 
         valid, err_msg = is_valid_promotion(prev_rank_val, rank_earned)
@@ -293,7 +296,7 @@ class HighTierResultModal(discord.ui.Modal):
                 except Exception: pass
 
         queues[self.gamemode] = [p for p in queues[self.gamemode] if p['user_id'] != self.player_member.id]
-        cooldowns[self.player_member.id] = datetime.datetime.utcnow() + datetime.timedelta(days=7) # Cooldown settato a 7 giorni
+        cooldowns[self.player_member.id] = datetime.datetime.utcnow() + datetime.timedelta(days=7)
 
         for role in self.player_member.roles:
             if self.gamemode in role.name:
@@ -344,7 +347,7 @@ class StaffControlView(discord.ui.View):
         tester_role_name = f"Tester {self.gamemode}"
         has_role = any(role.name == tester_role_name for role in interaction.user.roles)
         if not (has_role or interaction.user.guild_permissions.administrator):
-            await interaction.response.send_message(f"❌ Devi essere un **Tester {gamemode}** per usare questi controlli.", ephemeral=True)
+            await interaction.response.send_message(f"❌ You must be a **Tester {self.gamemode}** to use these controls.", ephemeral=True)
             return False
         return True
 
@@ -362,7 +365,7 @@ class StaffControlView(discord.ui.View):
     @discord.ui.button(label="Next Player", style=discord.ButtonStyle.green)
     async def next_player_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not queues[self.gamemode]:
-            await interaction.response.send_message("❌ La coda è vuota!", ephemeral=True)
+            await interaction.response.send_message("❌ The queue is empty!", ephemeral=True)
             return
 
         current_player = queues[self.gamemode][0]
@@ -391,11 +394,10 @@ class StaffControlView(discord.ui.View):
 
         eval_view = TesterPrivateEvalView(player_member, current_player['mc_name'], self.gamemode, match_room.id, current_player['region'])
         
-        # Invio del messaggio con i pulsanti e invio notifica DM al player (pulizia automatica dei messaggi successivi se necessario)
-        msg_eval = await match_room.send(content=f"⚡ **Match Room:** {player_member.mention} vs {interaction.user.mention}\n*Il match è iniziato! Usa i pulsanti sotto per assegnare il risultato.*", view=eval_view)
+        await match_room.send(content=f"⚡ **Match Room:** {player_member.mention} vs {interaction.user.mention}\n*The match has started! Use the buttons below to assign the result.*", view=eval_view)
         
         try:
-            await player_member.send(f"🎮 Il tuo turno per il test di **{self.gamemode}** è arrivato! Entra nel canale dedicato: {match_room.mention}")
+            await player_member.send(f"🎮 Your turn for the **{self.gamemode}** test has arrived! Join the dedicated channel: {match_room.mention}")
         except Exception:
             pass
 
@@ -413,7 +415,6 @@ class TesterPrivateEvalView(discord.ui.View):
         self.region = region
 
     async def clear_channel_messages(self, interaction: discord.Interaction):
-        """Pulisce la chat rimuovendo i messaggi in eccesso per evitare disordine."""
         try:
             channel = interaction.channel
             async for message in channel.history(limit=50):
@@ -441,13 +442,13 @@ def generate_queue_embed(gamemode: str):
     q = queues[gamemode]
     tester_id = active_testers[gamemode]
     
-    queue_list = "\n".join([f"`{i+1}.` <@{p['user_id']}>" for i, p in enumerate(q)]) if q else "*Vuota*"
-    tester_mention = f"<@{tester_id}>" if tester_id else "*Nessuno*"
+    queue_list = "\n".join([f"`{i+1}.` <@{p['user_id']}>" for i, p in enumerate(q)]) if q else "*Empty*"
+    tester_mention = f"<@{tester_id}>" if tester_id else "*None*"
 
     embed = discord.Embed(
         description=(
-            "⏱️ La coda si aggiorna istantaneamente.\n"
-            "Usa `/leave` per uscire dalla lista d'attesa.\n\n"
+            "⏱️ The queue updates instantly.\n"
+            "Use `/leave` to exit the waiting list.\n\n"
             f"**__Queue__ ({len(q)}/20):**\n{queue_list}\n\n"
             f"**Active Testers:**\n1. {tester_mention}"
         ),
@@ -467,29 +468,29 @@ async def update_board_message(guild, gamemode):
 
 # --- COMANDI SLASH ---
 
-@bot.tree.command(name="setup_panel", description="Crea il pannello di selezione delle modalità")
+@bot.tree.command(name="setup_panel", description="Creates the gamemode selection panel")
 async def setup_panel(interaction: discord.Interaction):
     if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("❌ Solo gli admin possono usare questo comando.", ephemeral=True)
+        await interaction.response.send_message("❌ Only administrators can use this command.", ephemeral=True)
         return
 
     embed = discord.Embed(
         title="Tier Test Booking Panel",
-        description="Clicca una modalità per metterti in coda!",
+        description="Click a gamemode to join the queue!",
         color=0x5865f2
     )
     await interaction.response.send_message(embed=embed, view=MainPanelView())
 
 
-@bot.tree.command(name="setup_board", description="Crea il canale waitlist della modalità (Bloccato in scrittura per tutti)")
-@app_commands.describe(gamemode="Nome della modalità")
+@bot.tree.command(name="setup_board", description="Creates the waitlist channel for a gamemode (Write-locked for everyone)")
+@app_commands.describe(gamemode="Name of the gamemode")
 async def setup_board(interaction: discord.Interaction, gamemode: str):
     if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("❌ Solo gli admin possono usare questo comando.", ephemeral=True)
+        await interaction.response.send_message("❌ Only administrators can use this command.", ephemeral=True)
         return
 
     if gamemode not in GAMEMODES:
-        await interaction.response.send_message(f"❌ Modalità non valida.", ephemeral=True)
+        await interaction.response.send_message(f"❌ Invalid gamemode.", ephemeral=True)
         return
 
     guild = interaction.guild
@@ -504,10 +505,10 @@ async def setup_board(interaction: discord.Interaction, gamemode: str):
         await waitlist_channel.set_permissions(tester_role, read_messages=True, send_messages=False)
 
     await waitlist_channel.send(embed=generate_queue_embed(gamemode), view=StaffControlView(gamemode))
-    await interaction.response.send_message(f"✅ Waitlist per **{gamemode}** creata e bloccata in scrittura!", ephemeral=True)
+    await interaction.response.send_message(f"✅ Waitlist for **{gamemode}** created and write-locked!", ephemeral=True)
 
 
-@bot.tree.command(name="leave", description="Esci dalla coda attuale")
+@bot.tree.command(name="leave", description="Leave your current queue")
 async def leave_cmd(interaction: discord.Interaction):
     user_id = interaction.user.id
     found = False
@@ -520,40 +521,40 @@ async def leave_cmd(interaction: discord.Interaction):
                 await update_board_message(interaction.guild, gm)
 
     if found:
-        await interaction.response.send_message("✅ Sei stato rimosso dalla coda.", ephemeral=True)
+        await interaction.response.send_message("✅ You have been removed from the queue.", ephemeral=True)
     else:
-        await interaction.response.send_message("❌ Non sei in alcuna coda.", ephemeral=True)
+        await interaction.response.send_message("❌ You are not in any queue.", ephemeral=True)
 
 
-@bot.tree.command(name="leave_tester", description="Abbandona la sessione di tester attivo per una modalità")
-@app_commands.describe(gamemode="La modalità")
+@bot.tree.command(name="leave_tester", description="Abandon your active tester session for a gamemode")
+@app_commands.describe(gamemode="The gamemode")
 async def leave_tester_cmd(interaction: discord.Interaction, gamemode: str):
     if gamemode not in GAMEMODES:
-        await interaction.response.send_message("❌ Modalità non valida.", ephemeral=True)
+        await interaction.response.send_message(f"❌ Invalid gamemode.", ephemeral=True)
         return
 
     tester_role_name = f"Tester {gamemode}"
     has_role = any(role.name == tester_role_name for role in interaction.user.roles)
     if not (has_role or interaction.user.guild_permissions.administrator):
-        await interaction.response.send_message(f"❌ Non sei un **Tester {gamemode}**.", ephemeral=True)
+        await interaction.response.send_message(f"❌ You are not a **Tester {gamemode}**.", ephemeral=True)
         return
 
     if active_testers[gamemode] != interaction.user.id:
-        await interaction.response.send_message("❌ Non sei il tester attivo per questa modalità.", ephemeral=True)
+        await interaction.response.send_message("❌ You are not the active tester for this gamemode.", ephemeral=True)
         return
 
     active_testers[gamemode] = None
     await update_board_message(interaction.guild, gamemode)
-    await interaction.response.send_message(f"✅ Non sei più il tester attivo per **{gamemode}**.", ephemeral=True)
+    await interaction.response.send_message(f"✅ You are no longer the active tester for **{gamemode}**.", ephemeral=True)
 
 
-@bot.tree.command(name="retier", description="Mette a riposo/retire il Tier di un giocatore")
-@app_commands.describe(member="Il giocatore", gamemode="La modalità", rank="Grado attuale da ritirare")
+@bot.tree.command(name="retier", description="Retire a player's Tier rank")
+@app_commands.describe(member="The player", gamemode="The gamemode", rank="Current rank to retire")
 async def retier_cmd(interaction: discord.Interaction, member: discord.Member, gamemode: str, rank: str):
     tester_role_name = f"Tester {gamemode}"
     has_role = any(role.name == tester_role_name for role in interaction.user.roles)
     if not (has_role or interaction.user.guild_permissions.administrator):
-        await interaction.response.send_message(f"❌ Devi essere un **Tester {gamemode}** per usare questo comando.", ephemeral=True)
+        await interaction.response.send_message(f"❌ You must be a **Tester {gamemode}** to use this command.", ephemeral=True)
         return
 
     guild = interaction.guild
@@ -569,16 +570,16 @@ async def retier_cmd(interaction: discord.Interaction, member: discord.Member, g
         retired_role = await guild.create_role(name=retired_role_name, color=discord.Color.light_gray(), mentionable=True)
 
     await member.add_roles(retired_role)
-    await interaction.response.send_message(f"✅ Ruolo di **{member.display_name}** aggiornato a `{retired_role_name}`.", ephemeral=True)
+    await interaction.response.send_message(f"✅ **{member.display_name}**'s role updated to `{retired_role_name}`.", ephemeral=True)
 
 
-@bot.tree.command(name="unretier", description="Ripristina il Tier di un giocatore")
-@app_commands.describe(member="Il giocatore", gamemode="La modalità", rank="Grado da ripristinare")
+@bot.tree.command(name="unretier", description="Restore a player's retired Tier rank")
+@app_commands.describe(member="The player", gamemode="The gamemode", rank="Rank to restore")
 async def unretier_cmd(interaction: discord.Interaction, member: discord.Member, gamemode: str, rank: str):
     tester_role_name = f"Tester {gamemode}"
     has_role = any(role.name == tester_role_name for role in interaction.user.roles)
     if not (has_role or interaction.user.guild_permissions.administrator):
-        await interaction.response.send_message(f"❌ Devi essere un **Tester {gamemode}** per usare questo comando.", ephemeral=True)
+        await interaction.response.send_message(f"❌ You must be a **Tester {gamemode}** to use this command.", ephemeral=True)
         return
 
     guild = interaction.guild
@@ -594,12 +595,12 @@ async def unretier_cmd(interaction: discord.Interaction, member: discord.Member,
         active_role = await guild.create_role(name=active_role_name, mentionable=True, color=discord.Color.default())
 
     await member.add_roles(active_role)
-    await interaction.response.send_message(f"✅ Ruolo di **{member.display_name}** ripristinato a `{active_role_name}`.", ephemeral=True)
+    await interaction.response.send_message(f"✅ **{member.display_name}**'s role restored to `{active_role_name}`.", ephemeral=True)
 
 
 @bot.event
 async def on_ready():
-    print(f"Bot connesso come: {bot.user.name}")
+    print(f"Bot connected as: {bot.user.name}")
     for gm in GAMEMODES:
         bot.add_view(StaffControlView(gm))
     bot.add_view(MainPanelView())
