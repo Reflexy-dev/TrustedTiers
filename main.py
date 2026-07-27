@@ -126,11 +126,10 @@ class MinecraftNameModal(discord.ui.Modal):
         await interaction.response.send_message(
             f"✅ Successfully joined the **{self.gamemode}** queue!", ephemeral=True
         )
-        # Aggiorna subito la board in modo che appaia immediatamente
         await update_board_message(interaction.guild, self.gamemode)
 
 
-# --- MODALE VALUTAZIONE FINALE ---
+# --- MODALE VALUTAZIONE FINALE (BLOCCATO SE NON HT3 O SUPERIORE) ---
 class FastResultModal(discord.ui.Modal):
     def __init__(self, player_member, mc_name, gamemode, ticket_channel_id, region):
         super().__init__(title=f"Assign Tier - {gamemode}")
@@ -152,8 +151,9 @@ class FastResultModal(discord.ui.Modal):
             required=True
         )
         self.match_score = discord.ui.TextInput(
-            label="Match Score (Obbligatorio se HT3 o sopra)",
-            placeholder="e.g. Won 4-1 vs. opponent",
+            label="Match Score (Bloccato se < HT3)",
+            placeholder="Disponibile solo per HT3 o superiore",
+            default="Non consentito (Richiesto HT3+)",
             required=False
         )
 
@@ -167,9 +167,17 @@ class FastResultModal(discord.ui.Modal):
         score_val = self.match_score.value.strip()
 
         is_high = is_high_tier(rank_earned)
-        if is_high and not score_val:
-            await interaction.response.send_message("❌ Questo è un tier HT3 o superiore! Devi obbligatoriamente compilare il Match Score.", ephemeral=True)
-            return
+        
+        # Se NON è un tier alto, l'utente non deve poter scrivere nulla nel match score
+        if not is_high:
+            if score_val and score_val != "Non consentito (Richiesto HT3+)":
+                await interaction.response.send_message("❌ Non puoi scrivere nel Match Score se il tier non è HT3 o superiore!", ephemeral=True)
+                return
+            score_val = ""
+        else:
+            if not score_val or score_val == "Non consentito (Richiesto HT3+)":
+                await interaction.response.send_message("❌ Questo è un tier HT3 o superiore! Devi inserire obbligatoriamente il Match Score.", ephemeral=True)
+                return
 
         await interaction.response.defer(ephemeral=True)
         guild = interaction.guild
@@ -200,7 +208,6 @@ class FastResultModal(discord.ui.Modal):
                     try: await msg.add_reaction(emo)
                     except Exception: pass
 
-        # Rimuove il player dalla coda definitivamente dopo l'assegnazione
         queues[self.gamemode] = [p for p in queues[self.gamemode] if p['user_id'] != self.player_member.id]
         cooldowns[self.player_member.id] = datetime.datetime.utcnow() + datetime.timedelta(days=35)
 
@@ -248,7 +255,6 @@ class StaffControlView(discord.ui.View):
         self.gamemode = gamemode
         self.join_tester_btn.custom_id = f"join_t_{gamemode}"
         self.next_player_btn.custom_id = f"next_p_{gamemode}"
-        self.leave_session_btn.custom_id = f"leave_s_{gamemode}"
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         tester_role_name = f"Tester {self.gamemode}"
@@ -302,11 +308,6 @@ class StaffControlView(discord.ui.View):
         eval_view = TesterPrivateEvalView(player_member, current_player['mc_name'], self.gamemode, match_room.id, current_player['region'])
         await match_room.send(content=f"⚡ **Match Room:** {player_member.mention} vs {interaction.user.mention}", view=eval_view)
         await interaction.message.edit(embed=generate_queue_embed(self.gamemode), view=self)
-
-    @discord.ui.button(label="Leave Session", style=discord.ButtonStyle.red)
-    async def leave_session_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        active_testers[self.gamemode] = None
-        await interaction.response.edit_message(embed=generate_queue_embed(self.gamemode), view=self)
 
 
 class TesterPrivateEvalView(discord.ui.View):
@@ -409,6 +410,28 @@ async def leave_cmd(interaction: discord.Interaction):
         await interaction.response.send_message("✅ You have been removed from the queue.", ephemeral=True)
     else:
         await interaction.response.send_message("❌ You are not in any queue.", ephemeral=True)
+
+
+@bot.tree.command(name="leave_tester", description="Leave your active tester session for a gamemode")
+@app_commands.describe(gamemode="The gamemode to stop testing")
+async def leave_tester_cmd(interaction: discord.Interaction, gamemode: str):
+    if gamemode not in GAMEMODES:
+        await interaction.response.send_message("❌ Invalid gamemode.", ephemeral=True)
+        return
+
+    tester_role_name = f"Tester {gamemode}"
+    has_role = any(role.name == tester_role_name for role in interaction.user.roles)
+    if not (has_role or interaction.user.guild_permissions.administrator):
+        await interaction.response.send_message(f"❌ You are not a specialized **Tester {gamemode}**.", ephemeral=True)
+        return
+
+    if active_testers[gamemode] != interaction.user.id:
+        await interaction.response.send_message("❌ You are not currently registered as the active tester for this gamemode.", ephemeral=True)
+        return
+
+    active_testers[gamemode] = None
+    await update_board_message(interaction.guild, gamemode)
+    await interaction.response.send_message(f"✅ You have left the active tester session for **{gamemode}**.", ephemeral=True)
 
 
 @bot.tree.command(name="retier", description="Retire a player's tier (moves to grey/retired role)")
