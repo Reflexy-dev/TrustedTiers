@@ -45,10 +45,11 @@ CATEGORY_NAME = "🎯Tierlist"
 
 def is_high_tier(rank_earned: str) -> bool:
     rank_lower = rank_earned.lower()
+    # Riconosce HT3, HT2, HT1, LT1, LT2 (e rispettivi "Tier")
     high_keywords = ["lt1", "ht1", "lt2", "ht2", "ht3", "tier 1", "tier 2", "tier 3"]
     if any(k in rank_lower for k in high_keywords):
         if "ht3" in rank_lower or "tier 3" in rank_lower:
-            return "high" in rank_lower or "ht3" in rank_lower
+            return "high" in rank_lower or "ht3" in rank_lower or "tier 3" in rank_lower
         return True
     return False
 
@@ -129,7 +130,7 @@ class MinecraftNameModal(discord.ui.Modal):
         await update_board_message(interaction.guild, self.gamemode)
 
 
-# --- MODALE VALUTAZIONE FINALE (BLOCCATO SE NON HT3 O SUPERIORE) ---
+# --- MODALE VALUTAZIONE FINALE (CON BLOCCO RIGOROSO DEL MATCH SCORE SE < HT3) ---
 class FastResultModal(discord.ui.Modal):
     def __init__(self, player_member, mc_name, gamemode, ticket_channel_id, region):
         super().__init__(title=f"Assign Tier - {gamemode}")
@@ -151,9 +152,8 @@ class FastResultModal(discord.ui.Modal):
             required=True
         )
         self.match_score = discord.ui.TextInput(
-            label="Match Score (Bloccato se < HT3)",
-            placeholder="Disponibile solo per HT3 o superiore",
-            default="Non consentito (Richiesto HT3+)",
+            label="Match Score (Obbligatorio se HT3+)",
+            placeholder="Lascia vuoto se LT4/LT5, scrivi se HT3+",
             required=False
         )
 
@@ -168,14 +168,14 @@ class FastResultModal(discord.ui.Modal):
 
         is_high = is_high_tier(rank_earned)
         
-        # Se NON è un tier alto, l'utente non deve poter scrivere nulla nel match score
+        # CONTROLLO RIGOROSO: Se NON è un tier alto (es. LT5, LT4), NON DEVE ESSERCI SCRITTO NULLA.
         if not is_high:
-            if score_val and score_val != "Non consentito (Richiesto HT3+)":
-                await interaction.response.send_message("❌ Non puoi scrivere nel Match Score se il tier non è HT3 o superiore!", ephemeral=True)
+            if score_val != "":
+                await interaction.response.send_message("❌ Non puoi inserire alcun Match Score se dai un tier inferiore a HT3 (es. LT4, LT5)! Lascia la casella completamente vuota.", ephemeral=True)
                 return
-            score_val = ""
         else:
-            if not score_val or score_val == "Non consentito (Richiesto HT3+)":
+            # Se è HT3 o superiore, il match score è obbligatorio
+            if not score_val:
                 await interaction.response.send_message("❌ Questo è un tier HT3 o superiore! Devi inserire obbligatoriamente il Match Score.", ephemeral=True)
                 return
 
@@ -430,7 +430,7 @@ async def leave_tester_cmd(interaction: discord.Interaction, gamemode: str):
         return
 
     active_testers[gamemode] = None
-    await update_board_message(interaction.guild, gamemode)
+    update_board_message(interaction.guild, gamemode)
     await interaction.response.send_message(f"✅ You have left the active tester session for **{gamemode}**.", ephemeral=True)
 
 
@@ -459,13 +459,13 @@ async def retier_cmd(interaction: discord.Interaction, member: discord.Member, g
     await interaction.response.send_message(f"✅ Successfully retired **{member.display_name}** from `{old_role_name}` to `{retired_role_name}`.", ephemeral=True)
 
 
-@bot.tree.command(name="unretier", description="Restore a retired player's tier")
-@app_commands.describe(member="The player", gamemode="The gamemode", rank="Rank to restore")
+@bot.tree.command(name="unretier", description="Ripristina un tier ritirato")
+@app_commands.describe(member="Il player", gamemode="La gamemode", rank="Il rank da ripristinare")
 async def unretier_cmd(interaction: discord.Interaction, member: discord.Member, gamemode: str, rank: str):
     tester_role_name = f"Tester {gamemode}"
     has_role = any(role.name == tester_role_name for role in interaction.user.roles)
     if not (has_role or interaction.user.guild_permissions.administrator):
-        await interaction.response.send_message(f"❌ You must be a specialized **Tester {gamemode}** to use this command.", ephemeral=True)
+        await interaction.response.send_message(f"❌ Non sei un **Tester {gamemode}** autorizzato.", ephemeral=True)
         return
 
     guild = interaction.guild
@@ -480,8 +480,8 @@ async def unretier_cmd(interaction: discord.Interaction, member: discord.Member,
     if not active_role:
         active_role = await guild.create_role(name=active_role_name, mentionable=True, color=discord.Color.default())
 
-    await member.add_roles(active_role)
-    await interaction.response.send_message(f"✅ Successfully unretired **{member.display_name}** back to `{active_role_name}`.", ephemeral=True)
+    await member.add_rules(active_role) if hasattr(active_role, 'add_rules') else await member.add_roles(active_role)
+    await interaction.response.send_message(f"✅ Ripristinato con successo **{member.display_name}** a `{active_role_name}`.", ephemeral=True)
 
 
 @bot.event
