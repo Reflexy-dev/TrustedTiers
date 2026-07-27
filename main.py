@@ -64,9 +64,8 @@ def is_valid_promotion(current_rank: str, target_rank: str) -> (bool, str):
     c_idx = TIER_ORDER.index(c_rank)
     t_idx = TIER_ORDER.index(t_rank)
 
-    if t_idx < c_idx:
-        return False, f"You cannot demote a player from `{c_rank}` to `{t_rank}` through tests!"
-
+    # Consentiamo la retrocessione (t_idx < c_idx) e il mantenimento del rank.
+    # Per la promozione, consentiamo al massimo 1 step in avanti alla volta.
     if t_idx > c_idx + 1:
         next_step = TIER_ORDER[c_idx + 1]
         return False, f"Invalid progression! The player is `{c_rank}` and can only advance to the next rank (`{next_step}`). They cannot skip directly to `{t_rank}`!"
