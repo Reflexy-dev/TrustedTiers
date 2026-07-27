@@ -123,14 +123,14 @@ class MinecraftNameModal(discord.ui.Modal):
         }
 
         queues[self.gamemode].append(player_data)
-        await update_board_message(interaction.guild, self.gamemode)
-        
         await interaction.response.send_message(
             f"✅ Successfully joined the **{self.gamemode}** queue!", ephemeral=True
         )
+        # Aggiorna subito la board in modo che appaia immediatamente
+        await update_board_message(interaction.guild, self.gamemode)
 
 
-# --- MODALE VALUTAZIONE FINALE (CON SEQUENZA RICHIESTA) ---
+# --- MODALE VALUTAZIONE FINALE ---
 class FastResultModal(discord.ui.Modal):
     def __init__(self, player_member, mc_name, gamemode, ticket_channel_id, region):
         super().__init__(title=f"Assign Tier - {gamemode}")
@@ -140,21 +140,19 @@ class FastResultModal(discord.ui.Modal):
         self.ticket_channel_id = ticket_channel_id
         self.region = region
 
-        # Prima le domande sui tier: Precedente e Nuovo
         self.prev_rank = discord.ui.TextInput(
-            label="1. Previous Rank",
+            label="Previous Rank",
             placeholder="Unranked",
             default="Unranked",
             required=True
         )
         self.new_rank = discord.ui.TextInput(
-            label="2. New Rank Earned",
+            label="New Rank Earned",
             placeholder="e.g. LT4, HT3, HT1...",
             required=True
         )
-        # Domanda extra per HT3 o sopra
         self.match_score = discord.ui.TextInput(
-            label="3. Match Score (Solo se HT3 o sopra)",
+            label="Match Score (Obbligatorio se HT3 o sopra)",
             placeholder="e.g. Won 4-1 vs. opponent",
             required=False
         )
@@ -170,7 +168,7 @@ class FastResultModal(discord.ui.Modal):
 
         is_high = is_high_tier(rank_earned)
         if is_high and not score_val:
-            await interaction.response.send_message("❌ Questo è un tier HT3 o superiore! Devi obbligatoriamente compilare il Match Score prima di inviare.", ephemeral=True)
+            await interaction.response.send_message("❌ Questo è un tier HT3 o superiore! Devi obbligatoriamente compilare il Match Score.", ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=True)
@@ -202,6 +200,7 @@ class FastResultModal(discord.ui.Modal):
                     try: await msg.add_reaction(emo)
                     except Exception: pass
 
+        # Rimuove il player dalla coda definitivamente dopo l'assegnazione
         queues[self.gamemode] = [p for p in queues[self.gamemode] if p['user_id'] != self.player_member.id]
         cooldowns[self.player_member.id] = datetime.datetime.utcnow() + datetime.timedelta(days=35)
 
@@ -226,7 +225,7 @@ class FastResultModal(discord.ui.Modal):
             except Exception: pass
 
 
-# --- VIEW PER IL PANNELLO PRINCIPALE A GRIGLIA ---
+# --- VIEW PANNELLO PRINCIPALE ---
 class MainPanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -242,7 +241,7 @@ class MainPanelButton(discord.ui.Button):
         await interaction.response.send_modal(MinecraftNameModal(self.gamemode))
 
 
-# --- VIEW CONTROLLO WAITLIST CON SPECIALIZZAZIONE TESTER ---
+# --- VIEW CONTROLLO WAITLIST ---
 class StaffControlView(discord.ui.View):
     def __init__(self, gamemode: str):
         super().__init__(timeout=None)
