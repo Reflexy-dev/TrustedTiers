@@ -57,12 +57,12 @@ def get_current_rank(member: discord.Member, gamemode: str) -> str:
     return "Unranked"
 
 def is_valid_promotion(current_rank: str, target_rank: str) -> (bool, str):
-    """Verifica se il passaggio di livello è consentito secondo le regole rigide."""
+    """Verifica se il passaggio di livello è consentito secondo le regole rigide (1 step alla volta)."""
     c_rank = current_rank.upper().strip()
     t_rank = target_rank.upper().strip()
 
     if c_rank not in TIER_ORDER or t_rank not in TIER_ORDER:
-        return True, ""  # Se si inseriscono ruoli custom si permette l'assegnazione
+        return True, ""
 
     c_idx = TIER_ORDER.index(c_rank)
     t_idx = TIER_ORDER.index(t_rank)
@@ -170,7 +170,7 @@ class StandardResultModal(discord.ui.Modal):
         )
         self.new_rank = discord.ui.TextInput(
             label="New Rank Earned (LT5, HT5, LT4, HT4, LT3)",
-            placeholder="Es: LT4",
+            placeholder="Es: LT4 o Unranked se fallito",
             required=True
         )
         self.add_item(self.prev_rank)
@@ -180,7 +180,6 @@ class StandardResultModal(discord.ui.Modal):
         rank_earned = self.new_rank.value.strip().upper()
         prev_rank_val = self.prev_rank.value.strip().upper()
 
-        # Controllo sulla progressione
         valid, err_msg = is_valid_promotion(prev_rank_val, rank_earned)
         if not valid:
             await interaction.response.send_message(f"❌ {err_msg}", ephemeral=True)
@@ -211,20 +210,21 @@ class StandardResultModal(discord.ui.Modal):
                 except Exception: pass
 
         queues[self.gamemode] = [p for p in queues[self.gamemode] if p['user_id'] != self.player_member.id]
-        cooldowns[self.player_member.id] = datetime.datetime.utcnow() + datetime.timedelta(days=35)
+        cooldowns[self.player_member.id] = datetime.datetime.utcnow() + datetime.timedelta(days=7) # Cooldown settato a 7 giorni
 
         for role in self.player_member.roles:
             if self.gamemode in role.name:
                 try: await self.player_member.remove_roles(role)
                 except: pass
 
-        role_name = f"{rank_earned} {self.gamemode}"
-        role = discord.utils.get(guild.roles, name=role_name)
-        if not role:
-            role = await guild.create_role(name=role_name, mentionable=True, color=discord.Color.default())
-        if role:
-            try: await self.player_member.add_roles(role)
-            except: pass
+        if rank_earned != "UNRANKED":
+            role_name = f"{rank_earned} {self.gamemode}"
+            role = discord.utils.get(guild.roles, name=role_name)
+            if not role:
+                role = await guild.create_role(name=role_name, mentionable=True, color=discord.Color.default())
+            if role:
+                try: await self.player_member.add_roles(role)
+                except: pass
 
         await update_board_message(guild, self.gamemode)
         
@@ -257,8 +257,8 @@ class HighTierResultModal(discord.ui.Modal):
             required=True
         )
         self.match_score = discord.ui.TextInput(
-            label="Match Score (Obbligatorio per High Tier)",
-            placeholder="Es: Won 4-2 vs Opponent",
+            label="Match Score",
+            placeholder="Es: 4-1",
             required=True
         )
 
@@ -276,7 +276,6 @@ class HighTierResultModal(discord.ui.Modal):
             await interaction.response.send_message(f"❌ Il giocatore deve essere almeno **LT3** per partecipare ad un High Tier Test! Rank attuale: `{prev_rank_val}`.", ephemeral=True)
             return
 
-        # Controllo sulla progressione a step singolo
         valid, err_msg = is_valid_promotion(prev_rank_val, rank_earned)
         if not valid:
             await interaction.response.send_message(f"❌ {err_msg}", ephemeral=True)
@@ -294,7 +293,7 @@ class HighTierResultModal(discord.ui.Modal):
                 except Exception: pass
 
         queues[self.gamemode] = [p for p in queues[self.gamemode] if p['user_id'] != self.player_member.id]
-        cooldowns[self.player_member.id] = datetime.datetime.utcnow() + datetime.timedelta(days=35)
+        cooldowns[self.player_member.id] = datetime.datetime.utcnow() + datetime.timedelta(days=7) # Cooldown settato a 7 giorni
 
         for role in self.player_member.roles:
             if self.gamemode in role.name:
@@ -345,7 +344,7 @@ class StaffControlView(discord.ui.View):
         tester_role_name = f"Tester {self.gamemode}"
         has_role = any(role.name == tester_role_name for role in interaction.user.roles)
         if not (has_role or interaction.user.guild_permissions.administrator):
-            await interaction.response.send_message(f"❌ Devi essere un **Tester {self.gamemode}** per usare questi controlli.", ephemeral=True)
+            await interaction.response.send_message(f"❌ Devi essere un **Tester {gamemode}** per usare questi controlli.", ephemeral=True)
             return False
         return True
 
@@ -391,11 +390,19 @@ class StaffControlView(discord.ui.View):
         )
 
         eval_view = TesterPrivateEvalView(player_member, current_player['mc_name'], self.gamemode, match_room.id, current_player['region'])
-        await match_room.send(content=f"⚡ **Match Room:** {player_member.mention} vs {interaction.user.mention}", view=eval_view)
+        
+        # Invio del messaggio con i pulsanti e invio notifica DM al player (pulizia automatica dei messaggi successivi se necessario)
+        msg_eval = await match_room.send(content=f"⚡ **Match Room:** {player_member.mention} vs {interaction.user.mention}\n*Il match è iniziato! Usa i pulsanti sotto per assegnare il risultato.*", view=eval_view)
+        
+        try:
+            await player_member.send(f"🎮 Il tuo turno per il test di **{self.gamemode}** è arrivato! Entra nel canale dedicato: {match_room.mention}")
+        except Exception:
+            pass
+
         await interaction.message.edit(embed=generate_queue_embed(self.gamemode), view=self)
 
 
-# --- 2 PULSANTI SEPARATI NELLA STANZA MATCH ---
+# --- 2 PULSANTI SEPARATI NELLA STANZA MATCH CON PULIZIA CHAT AUTOMATICA ---
 class TesterPrivateEvalView(discord.ui.View):
     def __init__(self, player_member, mc_name, gamemode, channel_id, region):
         super().__init__(timeout=None)
@@ -405,12 +412,27 @@ class TesterPrivateEvalView(discord.ui.View):
         self.channel_id = channel_id
         self.region = region
 
+    async def clear_channel_messages(self, interaction: discord.Interaction):
+        """Pulisce la chat rimuovendo i messaggi in eccesso per evitare disordine."""
+        try:
+            channel = interaction.channel
+            async for message in channel.history(limit=50):
+                if message.id != interaction.message.id:
+                    try:
+                        await message.delete()
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
     @discord.ui.button(label="🟢 TierTest (LT5 - LT3)", style=discord.ButtonStyle.green)
     async def standard_test_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.clear_channel_messages(interaction)
         await interaction.response.send_modal(StandardResultModal(self.player_member, self.mc_name, self.gamemode, self.channel_id, self.region))
 
     @discord.ui.button(label="🔥 HighTierTest (HT3 - HT1)", style=discord.ButtonStyle.blurple)
     async def high_tier_test_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.clear_channel_messages(interaction)
         await interaction.response.send_modal(HighTierResultModal(self.player_member, self.mc_name, self.gamemode, self.channel_id, self.region))
 
 
@@ -475,7 +497,6 @@ async def setup_board(interaction: discord.Interaction, gamemode: str):
     
     waitlist_channel = await guild.create_text_channel(name=f"waitlist-{gamemode.lower()}", category=category)
     
-    # Blocco totale in scrittura per tutti i membri
     await waitlist_channel.set_permissions(guild.default_role, read_messages=True, send_messages=False)
     
     tester_role = discord.utils.get(guild.roles, name=f"Tester {gamemode}")
