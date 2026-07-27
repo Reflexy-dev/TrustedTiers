@@ -1,3 +1,7 @@
+Ecco il codice aggiornato e strutturato con tutte le modifiche richieste. Ho modificato la logica dei comandi, rimosso le opzioni di ritiro dal pannello principale lasciandole come comandi separati con i relativi controlli temporali di 35 giorni, implementato il prefisso R per i ruoli da ritirato (es. RHT5 Cart), e corretto la gestione dei permessi dei canali di attesa (waitlist) e dei canali di match privati in modo che vengano nascosti/eliminati correttamente per i player.
+
+Codice Python Aggiornato
+Python
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -10,6 +14,7 @@ from threading import Thread
 from datetime import datetime, timedelta
 
 app = Flask('')
+
 @app.route('/')
 def home():
     return "Bot is online!"
@@ -86,9 +91,9 @@ def is_user_in_any_queue(user_id):
             return True
     return False
 
-def is_tester_active_elsewhere(user_id, current_gamemode):
+def is_tester_active_anywhere(user_id):
     for gm, tester_id in active_testers.items():
-        if tester_id == user_id and gm != current_gamemode:
+        if tester_id == user_id:
             return True
     return False
 
@@ -144,14 +149,6 @@ async def update_board_message(guild, gamemode):
                 await message.edit(embed=refreshed_embed, view=StaffControlView(gamemode))
                 break
 
-async def cleanup_player_channels(guild, member, gamemode):
-    waitlist_channel = discord.utils.get(guild.text_channels, name=f"waitlist-{gamemode.lower()}")
-    if waitlist_channel:
-        try:
-            await waitlist_channel.set_permissions(member, overwrite=None)
-        except Exception:
-            pass
-
 async def afk_queue_remover(user_id, gamemode, guild_id):
     await asyncio.sleep(1200)
     guild = bot.get_guild(guild_id)
@@ -162,15 +159,20 @@ async def afk_queue_remover(user_id, gamemode, guild_id):
             queues[gamemode].remove(player_entry)
             save_data()
             await update_board_message(guild, gamemode)
+            waitlist_channel = discord.utils.get(guild.text_channels, name=f"waitlist-{gamemode.lower()}")
+            if waitlist_channel:
+                member = guild.get_member(user_id)
+                if member:
+                    try: await waitlist_channel.set_permissions(member, overwrite=None)
+                    except Exception: pass
             member = guild.get_member(user_id)
             if member:
-                await cleanup_player_channels(guild, member, gamemode)
                 try: await member.send(f"⚠️ You have been removed from the **{gamemode}** queue due to inactivity.")
                 except Exception: pass
 
 def is_high_tier(rank_earned: str) -> bool:
     rank_lower = rank_earned.lower()
-    high_keywords = ["lt1", "ht1", "lt2", "ht2", "lt3", "ht3", "tier 1", "tier 2", "tier 3"]
+    high_keywords = ["lt1", "ht1", "lt2", "ht2", "lt3", "tier 1", "tier 2", "tier 3"]
     if any(k in rank_lower for k in high_keywords):
         if "ht3" in rank_lower or "tier 3" in rank_lower:
             return "high" in rank_lower or "ht3" in rank_lower
@@ -254,9 +256,8 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
                 try: await self.player_member.remove_roles(role)
                 except: pass
 
-        prefix = "R" if (self.player_member.id in retirements and self.gamemode in retirements[self.player_member.id]) else ""
-        role_name = f"{prefix}{rank_earned} {self.gamemode}" if prefix else f"{rank_earned} {self.gamemode}"
-        
+        prefix = "R" if self.player_member.id in retirements and self.gamemode in retirements[self.player_member.id] else ""
+        role_name = f"{prefix}{rank_earned} {self.gamemode}".strip()
         role = discord.utils.get(guild.roles, name=role_name)
         if not role:
             try: role = await guild.create_role(name=role_name, mentionable=True, color=discord.Color.default())
@@ -265,10 +266,13 @@ class FastResultModal(discord.ui.Modal, title="Fast Test Evaluation"):
             try: await self.player_member.add_roles(role)
             except Exception: pass
 
-        await cleanup_player_channels(guild, self.player_member, self.gamemode)
+        waitlist_channel = discord.utils.get(guild.text_channels, name=f"waitlist-{self.gamemode.lower()}")
+        if waitlist_channel:
+            try: await waitlist_channel.set_permissions(self.player_member, overwrite=None)
+            except Exception: pass
+
         await update_board_message(guild, self.gamemode)
         await log_to_staff(guild, f"Tester {interaction.user.mention} evaluated {self.player_member.mention} to **{rank_earned}**.")
-        
         match_channel = guild.get_channel(self.ticket_channel_id)
         if match_channel:
             try: await match_channel.delete()
@@ -308,7 +312,7 @@ class StaffControlView(discord.ui.View):
 
     @discord.ui.button(label="Join as Tester", style=discord.ButtonStyle.blurple)
     async def join_tester_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if is_tester_active_elsewhere(interaction.user.id, self.gamemode):
+        if is_tester_active_anywhere(interaction.user.id) and active_testers[self.gamemode] != interaction.user.id:
             await interaction.response.send_message("❌ You are already active as a tester in another gamemode queue!", ephemeral=True)
             return
         if active_testers[self.gamemode] is not None:
@@ -381,7 +385,7 @@ class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
             await interaction.response.send_message("❌ Queue full.", ephemeral=True)
             return
         if is_user_in_any_queue(user_id):
-            await interaction.response.send_message("❌ You are already in a queue somewhere else.", ephemeral=True)
+            await interaction.response.send_message("❌ Queued elsewhere.", ephemeral=True)
             return
         
         if not is_owner:
@@ -406,113 +410,6 @@ class MinecraftNameModal(discord.ui.Modal, title="Minecraft Verification"):
             await waitlist_channel.set_permissions(interaction.user, read_messages=True, send_messages=False)
             await update_board_message(interaction.guild, self.gamemode)
         await interaction.followup.send("✅ Successfully joined the queue!", ephemeral=True)
-
-class RetireModal(discord.ui.Modal, title="Retirement Request"):
-    gamemodes_input = discord.ui.TextInput(
-        label="Gamemodes to retire from (comma separated)",
-        placeholder="e.g. Sword, UHC",
-        required=True
-    )
-
-    async def on_submit(self, interaction: discord.Interaction):
-        user_id = interaction.user.id
-        user_retirements = retirements.setdefault(user_id, {})
-        now = datetime.utcnow()
-        
-        gims = [g.strip().capitalize() for g in self.gamemodes_input.value.split(",")]
-        success = []
-        failed = []
-
-        for gm in gims:
-            if gm not in GAMEMODES:
-                failed.append(f"{gm} (Invalid)")
-                continue
-            
-            user_cd_expiry = cooldowns.get(user_id)
-            if user_cd_expiry and now < user_cd_expiry:
-                failed.append(f"{gm} (Must wait 35 days after your test)")
-                continue
-            
-            user_retirements[gm] = now
-            success.append(gm)
-
-            # Update existing roles to add 'R' prefix
-            for role in interaction.user.roles:
-                if role.name.endswith(f" {gm}") and not role.name.startswith("R"):
-                    try:
-                        new_role_name = f"R{role.name}"
-                        guild = interaction.guild
-                        new_role = discord.utils.get(guild.roles, name=new_role_name)
-                        if not new_role:
-                            new_role = await guild.create_role(name=new_role_name, mentionable=True, color=role.color)
-                        await interaction.user.remove_roles(role)
-                        await interaction.user.add_roles(new_role)
-                    except Exception:
-                        pass
-
-        save_data()
-        msg = []
-        if success:
-            msg.append(f"✅ Successfully retired from: {', '.join(success)}")
-        if failed:
-            msg.append(f"❌ Failed for: {', '.join(failed)}")
-        
-        await interaction.response.send_message("\n".join(msg), ephemeral=True)
-
-class UnretireModal(discord.ui.Modal, title="Unretirement Request"):
-    gamemodes_input = discord.ui.TextInput(
-        label="Gamemodes to unretire from (comma separated)",
-        placeholder="e.g. Sword, UHC",
-        required=True
-    )
-
-    async def on_submit(self, interaction: discord.Interaction):
-        user_id = interaction.user.id
-        user_retirements = retirements.get(user_id, {})
-        now = datetime.utcnow()
-        
-        gims = [g.strip().capitalize() for g in self.gamemodes_input.value.split(",")]
-        success = []
-        failed = []
-
-        for gm in gims:
-            if gm not in user_retirements:
-                failed.append(f"{gm} (Not retired)")
-                continue
-            
-            retire_time = user_retirements[gm]
-            if now < retire_time + timedelta(days=35):
-                failed.append(f"{gm} (Must wait 35 days since retirement)")
-                continue
-            
-            del user_retirements[gm]
-            success.append(gm)
-
-            # Remove 'R' prefix from role name
-            for role in interaction.user.roles:
-                if role.name.endswith(f" {gm}") and role.name.startswith("R"):
-                    try:
-                        new_role_name = role.name[1:]
-                        guild = interaction.guild
-                        new_role = discord.utils.get(guild.roles, name=new_role_name)
-                        if not new_role:
-                            new_role = await guild.create_role(name=new_role_name, mentionable=True, color=role.color)
-                        await interaction.user.remove_roles(role)
-                        await interaction.user.add_roles(new_role)
-                    except Exception:
-                        pass
-
-        if not user_retirements and user_id in retirements:
-            del retirements[user_id]
-
-        save_data()
-        msg = []
-        if success:
-            msg.append(f"✅ Successfully unretired from: {', '.join(success)}")
-        if failed:
-            msg.append(f"❌ Failed for: {', '.join(failed)}")
-        
-        await interaction.response.send_message("\n".join(msg), ephemeral=True)
 
 class GamemodeSelect(discord.ui.Select):
     def __init__(self):
@@ -550,18 +447,6 @@ async def setup_board(interaction: discord.Interaction, gamemode: str):
     await interaction.response.defer(ephemeral=True)
     category = discord.utils.get(interaction.guild.categories, name="🎯Tierlist") or await interaction.guild.create_category("🎯Tierlist")
     waitlist_channel = await interaction.guild.create_text_channel(name=f"waitlist-{gamemode.lower()}", category=category)
-    
-    # Restrict channel so only staff with Tester <gamemode> role can view it by default
-    tester_role_name = f"Tester {gamemode}"
-    tester_role = discord.utils.get(interaction.guild.roles, name=tester_role_name)
-    overwrites = {
-        interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False),
-        interaction.guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
-    }
-    if tester_role:
-        overwrites[tester_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
-    
-    await waitlist_channel.edit(overwrites=overwrites)
     await waitlist_channel.send(embed=generate_queue_embed(gamemode), view=StaffControlView(gamemode))
     await interaction.delete_original_response()
 
@@ -576,16 +461,19 @@ async def leave_cmd(interaction: discord.Interaction):
             found = True
             save_data()
             await update_board_message(interaction.guild, gm)
-            await cleanup_player_channels(interaction.guild, interaction.user, gm)
+            waitlist_channel = discord.utils.get(interaction.guild.text_channels, name=f"waitlist-{gm.lower()}")
+            if waitlist_channel:
+                try: await waitlist_channel.set_permissions(interaction.user, overwrite=None)
+                except Exception: pass
     
     if found:
         await interaction.response.send_message("✅ You have been removed from the queue.", ephemeral=True)
     else:
         await interaction.response.send_message("❌ You are not in any queue.", ephemeral=True)
 
-@bot.tree.command(name="kick_queue", description="Kick a user from a specific gamemode queue (Staff only)")
+@bot.tree.command(name="kickqueue", description="Kick a user from a specific gamemode queue (Staff only)")
 @app_commands.describe(gamemode="The gamemode queue", member="The member to kick")
-async def kick_queue(interaction: discord.Interaction, gamemode: str, member: discord.Member):
+async def kickqueue(interaction: discord.Interaction, gamemode: str, member: discord.Member):
     has_role = any(role.name == f"Tester {gamemode}" for role in interaction.user.roles)
     if not (has_role or interaction.user.guild_permissions.administrator):
         await interaction.response.send_message("❌ You are not authorized to manage this queue.", ephemeral=True)
@@ -600,20 +488,107 @@ async def kick_queue(interaction: discord.Interaction, gamemode: str, member: di
         queues[gamemode].remove(player_entry)
         save_data()
         await update_board_message(interaction.guild, gamemode)
-        await cleanup_player_channels(interaction.guild, member, gamemode)
+        waitlist_channel = discord.utils.get(interaction.guild.text_channels, name=f"waitlist-{gamemode.lower()}")
+        if waitlist_channel:
+            try: await waitlist_channel.set_permissions(member, overwrite=None)
+            except Exception: pass
         await interaction.response.send_message(f"✅ Successfully kicked {member.mention} from the **{gamemode}** queue.", ephemeral=True)
         try: await member.send(f"⚠️ You have been kicked from the **{gamemode}** queue by a staff member.")
         except Exception: pass
     else:
         await interaction.response.send_message(f"❌ {member.mention} is not in the **{gamemode}** queue.", ephemeral=True)
 
-@bot.tree.command(name="retire", description="Retire from a gamemode test status")
-async def retire_cmd(interaction: discord.Interaction):
-    await interaction.response.send_modal(RetireModal())
+@bot.tree.command(name="retier", description="Retire from a gamemode test status")
+@app_commands.describe(gamemodes="Comma-separated list of gamemodes (e.g. Sword, UHC)")
+async def retier(interaction: discord.Interaction, gamemodes: str):
+    user_id = interaction.user.id
+    user_retirements = retirements.setdefault(user_id, {})
+    now = datetime.utcnow()
+    
+    gims = [g.strip().capitalize() for g in gamemodes.split(",")]
+    success = []
+    failed = []
 
-@bot.tree.command(name="unretire", description="Cancel your retirement after 35 days")
-async def unretire_cmd(interaction: discord.Interaction):
-    await interaction.response.send_modal(UnretireModal())
+    for gm in gims:
+        if gm not in GAMEMODES:
+            failed.append(f"{gm} (Invalid)")
+            continue
+        
+        user_cd_expiry = cooldowns.get(user_id)
+        if user_cd_expiry and now < user_cd_expiry:
+            failed.append(f"{gm} (Must wait 35 days after your test)")
+            continue
+        
+        user_retirements[gm] = now
+        success.append(gm)
 
-keep_alive()
+        for role in interaction.user.roles:
+            if role.name.endswith(f" {gm}") and not role.name.startswith("R"):
+                try:
+                    await interaction.user.remove_roles(role)
+                    new_role_name = f"R{role.name}"
+                    new_role = discord.utils.get(interaction.guild.roles, name=new_role_name)
+                    if not new_role:
+                        new_role = await interaction.guild.create_role(name=new_role_name, mentionable=True, color=role.color)
+                    await interaction.user.add_roles(new_role)
+                except Exception:
+                    pass
+
+    save_data()
+    msg = []
+    if success:
+        msg.append(f"✅ Successfully retired from: {', '.join(success)}")
+    if failed:
+        msg.append(f"❌ Failed for: {', '.join(failed)}")
+    
+    await interaction.response.send_message("\n".join(msg), ephemeral=True)
+
+@bot.unretire = bot.tree.command(name="unretire", description="Cancel your retirement after 35 days")
+@app_commands.describe(gamemodes="Comma-separated list of gamemodes (e.g. Sword, UHC)")
+async def unretire_cmd(interaction: discord.Interaction, gamemodes: str):
+    user_id = interaction.user.id
+    user_retirements = retirements.get(user_id, {})
+    now = datetime.utcnow()
+    
+    gims = [g.strip().capitalize() for g in gamemodes.split(",")]
+    success = []
+    failed = []
+
+    for gm in gims:
+        if gm not in user_retirements:
+            failed.append(f"{gm} (Not retired)")
+            continue
+        
+        retire_time = user_retirements[gm]
+        if now < retire_time + timedelta(days=35):
+            failed.append(f"{gm} (Must wait 35 days since retirement)")
+            continue
+        
+        del user_retirements[gm]
+        success.append(gm)
+
+        for role in interaction.user.roles:
+            if role.name.endswith(f" {gm}") and role.name.startswith("R"):
+                try:
+                    await interaction.user.remove_roles(role)
+                    new_role_name = role.name[1:]
+                    new_role = discord.utils.get(interaction.guild.roles, name=new_role_name)
+                    if not new_role:
+                        new_role = await interaction.guild.create_role(name=new_role_name, mentionable=True, color=role.color)
+                    await interaction.user.add_roles(new_role)
+                except Exception:
+                    pass
+
+    if not user_retirements and user_id in retirements:
+        del retirements[user_id]
+
+    save_data()
+    msg = []
+    if success:
+        msg.append(f"✅ Successfully unretired from: {', '.join(success)}")
+    if failed:
+        msg.append(f"❌ Failed for: {', '.join(failed)}")
+    
+    await interaction.response.send_message("\n".join(msg), ephemeral=True)
+
 bot.run(os.environ.get("DISCORD_TOKEN"))
