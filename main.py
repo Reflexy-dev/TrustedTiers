@@ -1,6 +1,6 @@
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 import datetime
 import asyncio
 import os
@@ -53,6 +53,36 @@ def is_high_tier(rank_earned: str) -> bool:
     return False
 
 
+# --- BACKGROUND TASK PER TIMEOUT CODA (1 ORA) ---
+@tasks.loop(minutes=1)
+async def check_queue_timeouts():
+    now = datetime.datetime.utcnow()
+    for gm in GAMEMODES:
+        updated = False
+        new_queue = []
+        for player in queues[gm]:
+            # Controlla se è passato 1 ora dall'ingresso in coda
+            if (now - player['joined_at']).total_seconds() > 3600:
+                updated = True
+                try:
+                    user = bot.get_user(player['user_id'])
+                    if user:
+                        await user.send(f"⏱️ You have been automatically removed from the **{gm}** queue because 1 hour has passed without a match.")
+                except Exception:
+                    pass
+            else:
+                new_queue.append(player)
+        
+        if updated:
+            queues[gm] = new_queue
+            for guild in bot.guilds:
+                await update_board_message(guild, gm)
+
+@check_queue_timeouts.before_loop
+async def before_timeouts():
+    await bot.wait_until_ready()
+
+
 # --- MODALE INSERIMENTO NICK MINECRAFT ---
 class MinecraftNameModal(discord.ui.Modal):
     def __init__(self, gamemode: str):
@@ -89,7 +119,8 @@ class MinecraftNameModal(discord.ui.Modal):
         player_data = {
             'user_id': user_id,
             'mc_name': self.mc_name.value.strip(),
-            'region': self.region.value.upper().strip()
+            'region': self.region.value.upper().strip(),
+            'joined_at': datetime.datetime.utcnow()
         }
 
         queues[self.gamemode].append(player_data)
@@ -100,7 +131,7 @@ class MinecraftNameModal(discord.ui.Modal):
         )
 
 
-# --- MODALE VALUTAZIONE FINALE (SOLO 2 CAMPI INIZIALI + MATCH SCORE SE HT3+) ---
+# --- MODALE VALUTAZIONE FINALE ---
 class FastResultModal(discord.ui.Modal):
     def __init__(self, player_member, mc_name, gamemode, ticket_channel_id, region):
         super().__init__(title=f"Assign Tier - {gamemode}")
@@ -143,7 +174,6 @@ class FastResultModal(discord.ui.Modal):
             await interaction.followup.send("❌ You must specify the match score for HT3 or above!", ephemeral=True)
             return
 
-        # Recupero skin corretta da Minecraft tramite Crafty.gg
         skin_url = f"https://render.crafty.gg/3d/bust/{self.mc_name}"
 
         if is_high:
@@ -171,10 +201,10 @@ class FastResultModal(discord.ui.Modal):
                     try: await msg.add_reaction(emo)
                     except Exception: pass
 
-        # Pulizia coda e assegnazione ruolo
         queues[self.gamemode] = [p for p in queues[self.gamemode] if p['user_id'] != self.player_member.id]
         cooldowns[self.player_member.id] = datetime.datetime.utcnow() + datetime.timedelta(days=35)
 
+        # Rimuove eventuali ruoli precedenti di questa gamemode per assicurarsi che abbia un solo tier attivo
         for role in self.player_member.roles:
             if self.gamemode in role.name:
                 try: await self.player_member.remove_roles(role)
@@ -190,14 +220,13 @@ class FastResultModal(discord.ui.Modal):
 
         await update_board_message(guild, self.gamemode)
         
-        # ELIMINA COMPLETAMENTE IL CANALE PRIVATO DEL MATCH
         match_channel = guild.get_channel(self.ticket_channel_id)
         if match_channel:
             try: await match_channel.delete()
             except Exception: pass
 
 
-# --- VIEW PER IL PANNELLO PRINCIPALE ORDINATO A GRIGLIA ---
+# --- VIEW PER IL PANNELLO PRINCIPALE A GRIGLIA ---
 class MainPanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -213,7 +242,7 @@ class MainPanelButton(discord.ui.Button):
         await interaction.response.send_modal(MinecraftNameModal(self.gamemode))
 
 
-# --- VIEW CONTROLLO WAITLIST (VISIBILE SOLO AI TESTER) ---
+# --- VIEW CONTROLLO WAITLIST CON SPECIALIZZAZIONE TESTER ---
 class StaffControlView(discord.ui.View):
     def __init__(self, gamemode: str):
         super().__init__(timeout=None)
@@ -223,9 +252,11 @@ class StaffControlView(discord.ui.View):
         self.leave_session_btn.custom_id = f"leave_s_{gamemode}"
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        has_role = any(role.name == f"Tester {self.gamemode}" for role in interaction.user.roles)
+        # Verifica rigorosa: il tester deve avere il ruolo specifico "Tester <gamemode>"
+        tester_role_name = f"Tester {self.gamemode}"
+        has_role = any(role.name == tester_role_name for role in interaction.user.roles)
         if not (has_role or interaction.user.guild_permissions.administrator):
-            await interaction.response.send_message("❌ Only testers can use these controls.", ephemeral=True)
+            await interaction.response.send_message(f"❌ You must be a specialized **Tester {self.gamemode}** to use these controls.", ephemeral=True)
             return False
         return True
 
@@ -294,22 +325,16 @@ class TesterPrivateEvalView(discord.ui.View):
         await interaction.response.send_modal(FastResultModal(self.player_member, self.mc_name, self.gamemode, self.channel_id, self.region))
 
 
-# --- GENERAZIONE EMBED WAITLIST ---
+# --- GENERAZIONE EMBED WAITLIST SEMPLIFICATA ---
 def generate_queue_embed(gamemode: str):
     q = queues[gamemode]
-    tester_id = active_testers[gamemode]
-    
-    title_status = "🟢 Tester(s) Available!" if tester_id else "⚪ Waiting for Tester(s)..."
-    queue_list = "\n".join([f"`{i+1}.` <@{p['user_id']}> ({p['region']})" for i, p in enumerate(q)]) if q else "*Empty*"
-    tester_mention = f"<@{tester_id}>" if tester_id else "*None*"
+    queue_list = "\n".join([f"`{i+1}.` <@{p['user_id']}>" for i, p in enumerate(q)]) if q else "*Empty*"
 
     embed = discord.Embed(
-        title=title_status,
         description=(
-            "⚪ The queue updates automatically.\n"
+            "⏱️ The queue updates every 10 seconds.\n"
             "Use `/leave` if you wish to be removed from the waitlist or queue.\n\n"
-            f"**__Queue__ ({len(q)}/20):**\n{queue_list}\n\n"
-            f"**Active Testers:**\n{tester_mention}"
+            f"**__Queue__ ({len(q)}/20):**\n{queue_list}"
         ),
         color=0x5865f2
     )
@@ -357,7 +382,6 @@ async def setup_board(interaction: discord.Interaction, gamemode: str):
     
     waitlist_channel = await guild.create_text_channel(name=f"waitlist-{gamemode.lower()}", category=category)
     
-    # Rendi la waitlist invisibile ai player comuni se vuoi che la vedano solo i tester, oppure gestisci i permessi
     await waitlist_channel.set_permissions(guild.default_role, read_messages=False)
     tester_role = discord.utils.get(guild.roles, name=f"Tester {gamemode}")
     if tester_role:
@@ -385,12 +409,67 @@ async def leave_cmd(interaction: discord.Interaction):
         await interaction.response.send_message("❌ You are not in any queue.", ephemeral=True)
 
 
+# --- COMANDI /RETIER E /UNRETIER ---
+@bot.tree.command(name="retier", description="Retire a player's tier (moves to grey/retired role)")
+@app_commands.describe(member="The player", gamemode="The gamemode", rank="Current rank to retire")
+async def retier_cmd(interaction: discord.Interaction, member: discord.Member, gamemode: str, rank: str):
+    # Controllo permessi tester o admin
+    tester_role_name = f"Tester {gamemode}"
+    has_role = any(role.name == tester_role_name for role in interaction.user.roles)
+    if not (has_role or interaction.user.guild_permissions.administrator):
+        await interaction.response.send_message(f"❌ You must be a specialized **Tester {gamemode}** to use this command.", ephemeral=True)
+        return
+
+    guild = interaction.guild
+    old_role_name = f"{rank} {gamemode}"
+    retired_role_name = f"R{rank} {gamemode}" # Ruolo ritirato (es. RHT5)
+
+    old_role = discord.utils.get(guild.roles, name=old_role_name)
+    if old_role and old_role in member.roles:
+        await member.remove_roles(old_role)
+
+    retired_role = discord.utils.get(guild.roles, name=retired_role_name)
+    if not retired_role:
+        # Colore grigio per i ruoli ritirati
+        retired_role = await guild.create_role(name=retired_role_name, color=discord.Color.light_gray(), mentionable=True)
+
+    await member.add_roles(retired_role)
+    await interaction.response.send_message(f"✅ Successfully retired **{member.display_name}** from `{old_role_name}` to `{retired_role_name}`.", ephemeral=True)
+
+
+@bot.tree.command(name="unretier", description="Restore a retired player's tier")
+@app_commands.describe(member="The player", gamemode="The gamemode", rank="Rank to restore")
+async def unretier_cmd(interaction: discord.Interaction, member: discord.Member, gamemode: str, rank: str):
+    tester_role_name = f"Tester {gamemode}"
+    has_role = any(role.name == tester_role_name for role in interaction.user.roles)
+    if not (has_role or interaction.user.guild_permissions.administrator):
+        await interaction.response.send_message(f"❌ You must be a specialized **Tester {gamemode}** to use this command.", ephemeral=True)
+        return
+
+    guild = interaction.guild
+    retired_role_name = f"R{rank} {gamemode}"
+    active_role_name = f"{rank} {gamemode}"
+
+    retired_role = discord.utils.get(guild.roles, name=retired_role_name)
+    if retired_role and retired_role in member.roles:
+        await member.remove_roles(retired_role)
+
+    active_role = discord.utils.get(guild.roles, name=active_role_name)
+    if not active_role:
+        active_role = await guild.create_role(name=active_role_name, mentionable=True, color=discord.Color.default())
+
+    await member.add_roles(active_role)
+    await interaction.response.send_message(f"✅ Successfully unretired **{member.display_name}** back to `{active_role_name}`.", ephemeral=True)
+
+
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user.name}")
     for gm in GAMEMODES:
         bot.add_view(StaffControlView(gm))
     bot.add_view(MainPanelView())
+    if not check_queue_timeouts.is_running():
+        check_queue_timeouts.start()
     await bot.tree.sync()
 
 TOKEN = os.getenv("DISCORD_TOKEN")
