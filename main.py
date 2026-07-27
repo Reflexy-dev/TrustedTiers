@@ -95,7 +95,7 @@ async def before_timeouts():
     await bot.wait_until_ready()
 
 
-# --- MODALE INSERIMENTO NICK MINECRAFT ---
+# --- MODALE INSERIMENTO NICK MINECRAFT (SENZA MESSAGGIO VISIBILE) ---
 class MinecraftNameModal(discord.ui.Modal):
     def __init__(self, gamemode: str):
         super().__init__(title=f"Queue: {gamemode}")
@@ -128,6 +128,13 @@ class MinecraftNameModal(discord.ui.Modal):
                 await interaction.response.send_message(f"❌ You are already in a queue!", ephemeral=True)
                 return
 
+        # Rimuove istantaneamente qualsiasi messaggio di risposta dell'interazione
+        await interaction.response.defer(thinking=True, ephemeral=True)
+        try:
+            await interaction.delete_original_response()
+        except Exception:
+            pass
+
         player_data = {
             'user_id': user_id,
             'mc_name': self.mc_name.value.strip(),
@@ -136,7 +143,6 @@ class MinecraftNameModal(discord.ui.Modal):
         }
 
         queues[self.gamemode].append(player_data)
-        await interaction.response.send_message(f"✅ You have successfully joined the **{self.gamemode}** queue!", ephemeral=True)
         await update_board_message(interaction.guild, self.gamemode)
 
 
@@ -395,7 +401,7 @@ class StaffControlView(discord.ui.View):
         await interaction.message.edit(embed=generate_queue_embed(self.gamemode), view=self)
 
 
-# --- 2 PULSANTI NELLA STANZA MATCH (NON VENGONO PIÙ CANCELLATI) ---
+# --- 2 PULSANTI NELLA STANZA MATCH ---
 class TesterPrivateEvalView(discord.ui.View):
     def __init__(self, player_member, mc_name, gamemode, channel_id, region):
         super().__init__(timeout=None)
