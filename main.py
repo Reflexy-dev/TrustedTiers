@@ -2,7 +2,6 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 import datetime
-import asyncio
 import os
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
@@ -396,7 +395,7 @@ class StaffControlView(discord.ui.View):
         await interaction.message.edit(embed=generate_queue_embed(self.gamemode), view=self)
 
 
-# --- 2 PULSANTI NELLA STANZA MATCH (MODALE APERTO SUBITO SENZA TIMEOUT) ---
+# --- 2 PULSANTI NELLA STANZA MATCH (NON VENGONO PIÙ CANCELLATI) ---
 class TesterPrivateEvalView(discord.ui.View):
     def __init__(self, player_member, mc_name, gamemode, channel_id, region):
         super().__init__(timeout=None)
@@ -406,25 +405,13 @@ class TesterPrivateEvalView(discord.ui.View):
         self.channel_id = channel_id
         self.region = region
 
-    async def clear_channel_background(self, channel):
-        try:
-            async for message in channel.history(limit=50):
-                try:
-                    await message.delete()
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
     @discord.ui.button(label="🟢 TierTest (LT5 - LT3)", style=discord.ButtonStyle.green)
     async def standard_test_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(StandardResultModal(self.player_member, self.mc_name, self.gamemode, self.channel_id, self.region))
-        asyncio.create_task(self.clear_channel_background(interaction.channel))
 
     @discord.ui.button(label="🔥 HighTierTest (HT3 - HT1)", style=discord.ButtonStyle.blurple)
     async def high_tier_test_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(HighTierResultModal(self.player_member, self.mc_name, self.gamemode, self.channel_id, self.region))
-        asyncio.create_task(self.clear_channel_background(interaction.channel))
 
 
 # --- GENERAZIONE EMBED WAITLIST ---
