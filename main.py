@@ -3,6 +3,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 import datetime
 import os
+import json  # <-- Aggiunto per gestire il file data.json
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 
@@ -45,6 +46,44 @@ TIER_ORDER = [
 
 HIGH_TIERS = ["HT3", "LT2", "HT2", "LT1", "HT1"]
 
+# --- FUNZIONE DI AGGIORNAMENTO AUTOMATICO JSON PER IL SITO ---
+def update_player_json(mc_name: str, region: str, gamemode: str, new_rank: str):
+    filename = "data.json"
+    players_data = []
+    
+    # Carica i dati attuali se il file esiste
+    if os.path.exists(filename):
+        try:
+            with open(filename, "r", encoding="utf-8") as f:
+                players_data = json.load(f)
+        except Exception:
+            players_data = []
+
+    # Cerca se il player esiste già (ignorando le maiuscole/minuscole del nome MC)
+    player = next((p for p in players_data if p["name"].lower() == mc_name.lower()), None)
+
+    if player:
+        player["region"] = region.upper()
+        if "tiers" not in player:
+            player["tiers"] = {}
+        player["tiers"][gamemode] = new_rank.upper()
+    else:
+        # Crea una nuova scheda player se non è presente nel file
+        new_player = {
+            "name": mc_name,
+            "region": region.upper(),
+            "subtitle": "Combat Member",
+            "tiers": {
+                gamemode: new_rank.upper()
+            }
+        }
+        players_data.append(new_player)
+
+    # Salva il file data.json formattato correttamente
+    with open(filename, "w", encoding="utf-8") as f:
+        json.dump(players_data, f, indent=2, ensure_ascii=False)
+
+
 def get_current_rank(member: discord.Member, gamemode: str) -> str:
     for role in member.roles:
         for t in TIER_ORDER:
@@ -52,7 +91,7 @@ def get_current_rank(member: discord.Member, gamemode: str) -> str:
                 return t
     return "Unranked"
 
-def is_valid_promotion(current_rank: str, target_rank: str) -> (bool, str):
+def is_valid_promotion(current_rank: str, target_rank: str):
     c_rank = current_rank.upper().strip()
     t_rank = target_rank.upper().strip()
 
@@ -67,7 +106,6 @@ def is_valid_promotion(current_rank: str, target_rank: str) -> (bool, str):
         return False, f"Invalid progression! The player is `{c_rank}` and can only advance to the next rank (`{next_step}`). They cannot skip directly to `{t_rank}`!"
 
     return True, ""
-
 
 # --- TASK BACKGROUND TIMEOUT CODA ---
 @tasks.loop(minutes=1)
@@ -90,7 +128,6 @@ async def check_queue_timeouts():
 @check_queue_timeouts.before_loop
 async def before_timeouts():
     await bot.wait_until_ready()
-
 
 # --- MODALE INSERIMENTO NICK MINECRAFT ---
 class MinecraftNameModal(discord.ui.Modal):
@@ -142,7 +179,7 @@ class MinecraftNameModal(discord.ui.Modal):
         await update_board_message(interaction.guild, self.gamemode)
 
 
-# --- MODALE RISULTATO TEST STANDARD (LT5, HT5, LT4, HT4, LT3) ---
+# --- MODALE RISULTATO TEST STANDARD ---
 class StandardResultModal(discord.ui.Modal):
     def __init__(self, player_member, mc_name, gamemode, ticket_channel_id, region):
         super().__init__(title=f"Standard Tier Test - {gamemode}")
@@ -154,16 +191,8 @@ class StandardResultModal(discord.ui.Modal):
 
         current_rank = get_current_rank(player_member, gamemode)
 
-        self.prev_rank = discord.ui.TextInput(
-            label="Previous Rank",
-            default=current_rank,
-            required=True
-        )
-        self.new_rank = discord.ui.TextInput(
-            label="New Rank Earned (LT5, HT5, LT4, HT4, LT3)",
-            placeholder="Ex: LT4",
-            required=True
-        )
+        self.prev_rank = discord.ui.TextInput(label="Previous Rank", default=current_rank, required=True)
+        self.new_rank = discord.ui.TextInput(label="New Rank Earned (LT5, HT5, LT4, HT4, LT3)", placeholder="Ex: LT4", required=True)
         self.add_item(self.prev_rank)
         self.add_item(self.new_rank)
 
@@ -172,7 +201,7 @@ class StandardResultModal(discord.ui.Modal):
         prev_rank_val = self.prev_rank.value.strip().upper()
 
         if rank_earned == "UNRANKED":
-            await interaction.response.send_message("❌ A player being tested cannot be Unranked! Please enter a valid earned tier.", ephemeral=True)
+            await interaction.response.send_message("❌ A player being tested cannot be Unranked!", ephemeral=True)
             return
 
         valid, err_msg = is_valid_promotion(prev_rank_val, rank_earned)
@@ -203,6 +232,9 @@ class StandardResultModal(discord.ui.Modal):
             for emo in ["👑", "🥳", "😱", "😭", "😂", "💀"]:
                 try: await msg.add_reaction(emo)
                 except Exception: pass
+
+        # AGGIORNA AUTOMATICAMENTE IL FILE JSON DEL SITO WEB
+        update_player_json(self.mc_name, self.region, self.gamemode, rank_earned)
 
         queues[self.gamemode] = [p for p in queues[self.gamemode] if p['user_id'] != self.player_member.id]
         cooldowns[self.player_member.id] = datetime.datetime.utcnow() + datetime.timedelta(days=7)
@@ -240,21 +272,9 @@ class HighTierResultModal(discord.ui.Modal):
 
         current_rank = get_current_rank(player_member, gamemode)
 
-        self.prev_rank = discord.ui.TextInput(
-            label="Previous Rank",
-            default=current_rank,
-            required=True
-        )
-        self.new_rank = discord.ui.TextInput(
-            label="New Rank Earned (HT3, LT2...) or LT3 (Fail)",
-            placeholder="Ex: HT3 or LT3",
-            required=True
-        )
-        self.match_score = discord.ui.TextInput(
-            label="Match Score",
-            placeholder="Ex: 4-1",
-            required=True
-        )
+        self.prev_rank = discord.ui.TextInput(label="Previous Rank", default=current_rank, required=True)
+        self.new_rank = discord.ui.TextInput(label="New Rank Earned (HT3, LT2...) or LT3 (Fail)", placeholder="Ex: HT3 or LT3", required=True)
+        self.match_score = discord.ui.TextInput(label="Match Score", placeholder="Ex: 4-1", required=True)
 
         self.add_item(self.prev_rank)
         self.add_item(self.new_rank)
@@ -266,7 +286,7 @@ class HighTierResultModal(discord.ui.Modal):
         score_val = self.match_score.value.strip()
 
         if rank_earned == "UNRANKED":
-            await interaction.response.send_message("❌ A player being tested cannot be Unranked! Please enter a valid earned tier.", ephemeral=True)
+            await interaction.response.send_message("❌ A player being tested cannot be Unranked!", ephemeral=True)
             return
 
         allowed_high_result_tiers = ["LT3", "HT3", "LT2", "HT2", "LT1", "HT1"]
@@ -275,7 +295,7 @@ class HighTierResultModal(discord.ui.Modal):
             return
 
         if prev_rank_val not in TIER_ORDER or TIER_ORDER.index(prev_rank_val) < TIER_ORDER.index("LT3"):
-            await interaction.response.send_message(f"❌ The player must be at least **LT3** to participate in a High Tier Test! Current rank: `{prev_rank_val}`.", ephemeral=True)
+            await interaction.response.send_message(f"❌ The player must be at least **LT3** to participate in a High Tier Test!", ephemeral=True)
             return
 
         valid, err_msg = is_valid_promotion(prev_rank_val, rank_earned)
@@ -286,18 +306,15 @@ class HighTierResultModal(discord.ui.Modal):
         await interaction.response.defer(ephemeral=True)
         guild = interaction.guild
 
-        # Controlla se è un successo o un fallimento (stesso tier o inferiore)
         c_idx = TIER_ORDER.index(prev_rank_val) if prev_rank_val in TIER_ORDER else 0
         t_idx = TIER_ORDER.index(rank_earned) if rank_earned in TIER_ORDER else 0
 
         if t_idx <= c_idx:
-            # Fallimento / Mantenimento rank
             eval_status = "Failed High Tier Evaluation"
-            final_rank = prev_rank_val
+            final_rank = prev_rank_val # Se fallisce, mantiene il rank precedente
         else:
-            # Promozione
             eval_status = "Passed High Tier Evaluation"
-            final_rank = rank_earned
+            final_rank = rank_earned # Se passa, prende il nuovo rank
 
         content_msg = f"{self.player_member.mention} - {self.mc_name} - Result: **{final_rank}**\n\n**{eval_status}**\n\n**{final_rank} Fights**\n| {score_val}"
         
@@ -308,10 +325,12 @@ class HighTierResultModal(discord.ui.Modal):
                 try: await msg.add_reaction(emo)
                 except Exception: pass
 
+        # AGGIORNA AUTOMATICAMENTE IL FILE JSON DEL SITO WEB (con il rank effettivo finale)
+        update_player_json(self.mc_name, self.region, self.gamemode, final_rank)
+
         queues[self.gamemode] = [p for p in queues[self.gamemode] if p['user_id'] != self.player_member.id]
         cooldowns[self.player_member.id] = datetime.datetime.utcnow() + datetime.timedelta(days=7)
 
-        # Gestione ruoli solo se c'è una promozione effettiva
         if t_idx > c_idx:
             for role in self.player_member.roles:
                 if self.gamemode in role.name:
@@ -334,7 +353,7 @@ class HighTierResultModal(discord.ui.Modal):
             except Exception: pass
 
 
-# --- VIEW PANNELLO PRINCIPALE ---
+# --- VISTE E PANNELLI ---
 class MainPanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -349,8 +368,6 @@ class MainPanelButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.send_modal(MinecraftNameModal(self.gamemode))
 
-
-# --- VIEW CONTROLLO WAITLIST ---
 class StaffControlView(discord.ui.View):
     def __init__(self, gamemode: str):
         super().__init__(timeout=None)
@@ -374,7 +391,6 @@ class StaffControlView(discord.ui.View):
         if not role:
             role = await interaction.guild.create_role(name=role_name, color=discord.Color.blue())
         await interaction.user.add_roles(role)
-        
         await interaction.response.edit_message(embed=generate_queue_embed(self.gamemode), view=self)
 
     @discord.ui.button(label="Next Player", style=discord.ButtonStyle.green)
@@ -408,12 +424,9 @@ class StaffControlView(discord.ui.View):
         )
 
         eval_view = TesterPrivateEvalView(player_member, current_player['mc_name'], self.gamemode, match_room.id, current_player['region'])
-        
         await match_room.send(content=f"⚡ **Match Room:** {player_member.mention} vs {interaction.user.mention}\n*The match has started! Use the buttons below to assign the result.*", view=eval_view)
         await interaction.message.edit(embed=generate_queue_embed(self.gamemode), view=self)
 
-
-# --- 2 PULSANTI NELLA STANZA MATCH ---
 class TesterPrivateEvalView(discord.ui.View):
     def __init__(self, player_member, mc_name, gamemode, channel_id, region):
         super().__init__(timeout=None)
@@ -431,8 +444,6 @@ class TesterPrivateEvalView(discord.ui.View):
     async def high_tier_test_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(HighTierResultModal(self.player_member, self.mc_name, self.gamemode, self.channel_id, self.region))
 
-
-# --- GENERAZIONE EMBED WAITLIST ---
 def generate_queue_embed(gamemode: str):
     q = queues[gamemode]
     tester_id = active_testers[gamemode]
@@ -451,7 +462,6 @@ def generate_queue_embed(gamemode: str):
     )
     return embed
 
-
 async def update_board_message(guild, gamemode):
     waitlist_channel = discord.utils.get(guild.text_channels, name=f"waitlist-{gamemode.lower()}")
     if waitlist_channel:
@@ -460,25 +470,16 @@ async def update_board_message(guild, gamemode):
                 await message.edit(embed=generate_queue_embed(gamemode), view=StaffControlView(gamemode))
                 break
 
-
-# --- COMANDI SLASH ---
-
+# --- COMANDI SLASH DI CONFIGURAZIONE E GESTIONE ---
 @bot.tree.command(name="setup_panel", description="Creates the gamemode selection panel")
 async def setup_panel(interaction: discord.Interaction):
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("❌ Only administrators can use this command.", ephemeral=True)
         return
-
     await interaction.response.defer(thinking=True, ephemeral=True)
     await interaction.delete_original_response()
-
-    embed = discord.Embed(
-        title="Testing Ticket Panel",
-        description="Click a gamemode to join the queue!",
-        color=0x5865f2
-    )
+    embed = discord.Embed(title="Testing Ticket Panel", description="Click a gamemode to join the queue!", color=0x5865f2)
     await interaction.channel.send(embed=embed, view=MainPanelView())
-
 
 @bot.tree.command(name="setup_board", description="Creates the waitlist channel for a gamemode")
 @app_commands.describe(gamemode="Name of the gamemode")
@@ -486,19 +487,15 @@ async def setup_board(interaction: discord.Interaction, gamemode: str):
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("❌ Only administrators can use this command.", ephemeral=True)
         return
-
     if gamemode not in GAMEMODES:
         await interaction.response.send_message(f"❌ Invalid gamemode.", ephemeral=True)
         return
-
     await interaction.response.defer(thinking=True, ephemeral=True)
     await interaction.delete_original_response()
 
     guild = interaction.guild
     category = discord.utils.get(guild.categories, name=CATEGORY_NAME) or await guild.create_category(CATEGORY_NAME)
-    
     waitlist_channel = await guild.create_text_channel(name=f"waitlist-{gamemode.lower()}", category=category)
-    
     await waitlist_channel.set_permissions(guild.default_role, read_messages=True, send_messages=False)
     
     tester_role = discord.utils.get(guild.roles, name=f"Tester {gamemode}")
@@ -507,11 +504,9 @@ async def setup_board(interaction: discord.Interaction, gamemode: str):
 
     await waitlist_channel.send(embed=generate_queue_embed(gamemode), view=StaffControlView(gamemode))
 
-
 @bot.tree.command(name="leave", description="Leave your current queue")
 async def leave_cmd(interaction: discord.Interaction):
     user_id = interaction.user.id
-
     for channel in interaction.guild.text_channels:
         if channel.name.startswith("match-") and str(user_id) in str(channel.overwrites):
             await interaction.response.send_message("❌ You cannot use `/leave` while you are currently in an active match room!", ephemeral=True)
@@ -531,7 +526,7 @@ async def leave_cmd(interaction: discord.Interaction):
     else:
         await interaction.response.send_message("❌ You are not in any queue.", ephemeral=True)
 
-
+# --- I COMANDI CHE MANCAVANO (SONO TORNATI SANI E SALVI) ---
 @bot.tree.command(name="leave_tester", description="Abandon your active tester session for a gamemode")
 @app_commands.describe(gamemode="The gamemode")
 async def leave_tester_cmd(interaction: discord.Interaction, gamemode: str):
@@ -552,7 +547,6 @@ async def leave_tester_cmd(interaction: discord.Interaction, gamemode: str):
     active_testers[gamemode] = None
     await update_board_message(interaction.guild, gamemode)
     await interaction.response.send_message(f"✅ You are no longer the active tester for **{gamemode}**.", ephemeral=True)
-
 
 @bot.tree.command(name="retier", description="Retire a player's Tier rank")
 @app_commands.describe(member="The player", gamemode="The gamemode", rank="Current rank to retire")
@@ -578,7 +572,6 @@ async def retier_cmd(interaction: discord.Interaction, member: discord.Member, g
     await member.add_roles(retired_role)
     await interaction.response.send_message(f"✅ **{member.display_name}**'s role updated to `{retired_role_name}`.", ephemeral=True)
 
-
 @bot.tree.command(name="unretier", description="Restore a player's retired Tier rank")
 @app_commands.describe(member="The player", gamemode="The gamemode", rank="Rank to restore")
 async def unretier_cmd(interaction: discord.Interaction, member: discord.Member, gamemode: str, rank: str):
@@ -602,7 +595,6 @@ async def unretier_cmd(interaction: discord.Interaction, member: discord.Member,
 
     await member.add_roles(active_role)
     await interaction.response.send_message(f"✅ **{member.display_name}**'s role restored to `{active_role_name}`.", ephemeral=True)
-
 
 @bot.event
 async def on_ready():
