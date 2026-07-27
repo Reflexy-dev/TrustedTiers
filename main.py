@@ -445,4 +445,4 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 if TOKEN is None:
     print("❌ ERRORE: Nessun token trovato nelle variabili d'ambiente di Render (DISCORD_TOKEN)!")
 else:
-    bot.run(TOKEN)
+    bot.run(DISCORD_TOKEN)
