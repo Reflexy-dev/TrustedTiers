@@ -61,7 +61,6 @@ async def check_queue_timeouts():
         updated = False
         new_queue = []
         for player in queues[gm]:
-            # Controlla se è passato 1 ora dall'ingresso in coda
             if (now - player['joined_at']).total_seconds() > 3600:
                 updated = True
                 try:
@@ -131,7 +130,7 @@ class MinecraftNameModal(discord.ui.Modal):
         )
 
 
-# --- MODALE VALUTAZIONE FINALE ---
+# --- MODALE VALUTAZIONE FINALE (CON SEQUENZA RICHIESTA) ---
 class FastResultModal(discord.ui.Modal):
     def __init__(self, player_member, mc_name, gamemode, ticket_channel_id, region):
         super().__init__(title=f"Assign Tier - {gamemode}")
@@ -141,19 +140,21 @@ class FastResultModal(discord.ui.Modal):
         self.ticket_channel_id = ticket_channel_id
         self.region = region
 
+        # Prima le domande sui tier: Precedente e Nuovo
         self.prev_rank = discord.ui.TextInput(
-            label="Previous Rank",
+            label="1. Previous Rank",
             placeholder="Unranked",
             default="Unranked",
             required=True
         )
         self.new_rank = discord.ui.TextInput(
-            label="New Rank Earned",
+            label="2. New Rank Earned",
             placeholder="e.g. LT4, HT3, HT1...",
             required=True
         )
+        # Domanda extra per HT3 o sopra
         self.match_score = discord.ui.TextInput(
-            label="Match Score (Only if HT3 or above)",
+            label="3. Match Score (Solo se HT3 o sopra)",
             placeholder="e.g. Won 4-1 vs. opponent",
             required=False
         )
@@ -163,17 +164,17 @@ class FastResultModal(discord.ui.Modal):
         self.add_item(self.match_score)
 
     async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        guild = interaction.guild
         rank_earned = self.new_rank.value.strip()
         prev_rank_val = self.prev_rank.value.strip() or "Unranked"
         score_val = self.match_score.value.strip()
 
         is_high = is_high_tier(rank_earned)
         if is_high and not score_val:
-            await interaction.followup.send("❌ You must specify the match score for HT3 or above!", ephemeral=True)
+            await interaction.response.send_message("❌ Questo è un tier HT3 o superiore! Devi obbligatoriamente compilare il Match Score prima di inviare.", ephemeral=True)
             return
 
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
         skin_url = f"https://render.crafty.gg/3d/bust/{self.mc_name}"
 
         if is_high:
@@ -204,7 +205,6 @@ class FastResultModal(discord.ui.Modal):
         queues[self.gamemode] = [p for p in queues[self.gamemode] if p['user_id'] != self.player_member.id]
         cooldowns[self.player_member.id] = datetime.datetime.utcnow() + datetime.timedelta(days=35)
 
-        # Rimuove eventuali ruoli precedenti di questa gamemode per assicurarsi che abbia un solo tier attivo
         for role in self.player_member.roles:
             if self.gamemode in role.name:
                 try: await self.player_member.remove_roles(role)
@@ -252,7 +252,6 @@ class StaffControlView(discord.ui.View):
         self.leave_session_btn.custom_id = f"leave_s_{gamemode}"
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        # Verifica rigorosa: il tester deve avere il ruolo specifico "Tester <gamemode>"
         tester_role_name = f"Tester {self.gamemode}"
         has_role = any(role.name == tester_role_name for role in interaction.user.roles)
         if not (has_role or interaction.user.guild_permissions.administrator):
@@ -325,16 +324,20 @@ class TesterPrivateEvalView(discord.ui.View):
         await interaction.response.send_modal(FastResultModal(self.player_member, self.mc_name, self.gamemode, self.channel_id, self.region))
 
 
-# --- GENERAZIONE EMBED WAITLIST SEMPLIFICATA ---
+# --- GENERAZIONE EMBED WAITLIST ---
 def generate_queue_embed(gamemode: str):
     q = queues[gamemode]
+    tester_id = active_testers[gamemode]
+    
     queue_list = "\n".join([f"`{i+1}.` <@{p['user_id']}>" for i, p in enumerate(q)]) if q else "*Empty*"
+    tester_mention = f"<@{tester_id}>" if tester_id else "*None*"
 
     embed = discord.Embed(
         description=(
             "⏱️ The queue updates every 10 seconds.\n"
             "Use `/leave` if you wish to be removed from the waitlist or queue.\n\n"
-            f"**__Queue__ ({len(q)}/20):**\n{queue_list}"
+            f"**__Queue__ ({len(q)}/20):**\n{queue_list}\n\n"
+            f"**Active Testers:**\n1. {tester_mention}"
         ),
         color=0x5865f2
     )
@@ -409,11 +412,9 @@ async def leave_cmd(interaction: discord.Interaction):
         await interaction.response.send_message("❌ You are not in any queue.", ephemeral=True)
 
 
-# --- COMANDI /RETIER E /UNRETIER ---
 @bot.tree.command(name="retier", description="Retire a player's tier (moves to grey/retired role)")
 @app_commands.describe(member="The player", gamemode="The gamemode", rank="Current rank to retire")
 async def retier_cmd(interaction: discord.Interaction, member: discord.Member, gamemode: str, rank: str):
-    # Controllo permessi tester o admin
     tester_role_name = f"Tester {gamemode}"
     has_role = any(role.name == tester_role_name for role in interaction.user.roles)
     if not (has_role or interaction.user.guild_permissions.administrator):
@@ -422,7 +423,7 @@ async def retier_cmd(interaction: discord.Interaction, member: discord.Member, g
 
     guild = interaction.guild
     old_role_name = f"{rank} {gamemode}"
-    retired_role_name = f"R{rank} {gamemode}" # Ruolo ritirato (es. RHT5)
+    retired_role_name = f"R{rank} {gamemode}"
 
     old_role = discord.utils.get(guild.roles, name=old_role_name)
     if old_role and old_role in member.roles:
@@ -430,7 +431,6 @@ async def retier_cmd(interaction: discord.Interaction, member: discord.Member, g
 
     retired_role = discord.utils.get(guild.roles, name=retired_role_name)
     if not retired_role:
-        # Colore grigio per i ruoli ritirati
         retired_role = await guild.create_role(name=retired_role_name, color=discord.Color.light_gray(), mentionable=True)
 
     await member.add_roles(retired_role)
