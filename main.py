@@ -62,9 +62,6 @@ def is_valid_promotion(current_rank: str, target_rank: str) -> (bool, str):
     c_idx = TIER_ORDER.index(c_rank)
     t_idx = TIER_ORDER.index(t_rank)
 
-    if c_rank in HIGH_TIERS and t_idx <= c_idx:
-        return False, f"High Tier rule: If you fail or match your current tier (`{c_rank}`), you stay at your current rank!"
-
     if t_idx > c_idx + 1:
         next_step = TIER_ORDER[c_idx + 1]
         return False, f"Invalid progression! The player is `{c_rank}` and can only advance to the next rank (`{next_step}`). They cannot skip directly to `{t_rank}`!"
@@ -95,7 +92,7 @@ async def before_timeouts():
     await bot.wait_until_ready()
 
 
-# --- MODALE INSERIMENTO NICK MINECRAFT (SENZA MESSAGGIO VISIBILE) ---
+# --- MODALE INSERIMENTO NICK MINECRAFT ---
 class MinecraftNameModal(discord.ui.Modal):
     def __init__(self, gamemode: str):
         super().__init__(title=f"Queue: {gamemode}")
@@ -128,7 +125,6 @@ class MinecraftNameModal(discord.ui.Modal):
                 await interaction.response.send_message(f"❌ You are already in a queue!", ephemeral=True)
                 return
 
-        # Rimuove istantaneamente qualsiasi messaggio di risposta dell'interazione
         await interaction.response.defer(thinking=True, ephemeral=True)
         try:
             await interaction.delete_original_response()
@@ -290,7 +286,21 @@ class HighTierResultModal(discord.ui.Modal):
         await interaction.response.defer(ephemeral=True)
         guild = interaction.guild
 
-        content_msg = f"{self.player_member.mention} - {self.mc_name} - Promoted to **{rank_earned}**\n\n**Passed High Tier Evaluation**\n\n**{rank_earned} Fights**\n| {score_val}"
+        # Controlla se è un successo o un fallimento (stesso tier o inferiore)
+        c_idx = TIER_ORDER.index(prev_rank_val) if prev_rank_val in TIER_ORDER else 0
+        t_idx = TIER_ORDER.index(rank_earned) if rank_earned in TIER_ORDER else 0
+
+        if t_idx <= c_idx:
+            # Fallimento / Mantenimento rank
+            eval_status = "Failed High Tier Evaluation"
+            final_rank = prev_rank_val
+        else:
+            # Promozione
+            eval_status = "Passed High Tier Evaluation"
+            final_rank = rank_earned
+
+        content_msg = f"{self.player_member.mention} - {self.mc_name} - Result: **{final_rank}**\n\n**{eval_status}**\n\n**{final_rank} Fights**\n| {score_val}"
+        
         target_channel = discord.utils.get(guild.text_channels, name="🥇│hight-results")
         if target_channel:
             msg = await target_channel.send(content=content_msg)
@@ -301,18 +311,20 @@ class HighTierResultModal(discord.ui.Modal):
         queues[self.gamemode] = [p for p in queues[self.gamemode] if p['user_id'] != self.player_member.id]
         cooldowns[self.player_member.id] = datetime.datetime.utcnow() + datetime.timedelta(days=7)
 
-        for role in self.player_member.roles:
-            if self.gamemode in role.name:
-                try: await self.player_member.remove_roles(role)
-                except: pass
+        # Gestione ruoli solo se c'è una promozione effettiva
+        if t_idx > c_idx:
+            for role in self.player_member.roles:
+                if self.gamemode in role.name:
+                    try: await self.player_member.remove_roles(role)
+                    except: pass
 
-        role_name = f"{rank_earned} {self.gamemode}"
-        role = discord.utils.get(guild.roles, name=role_name)
-        if not role:
-            role = await guild.create_role(name=role_name, mentionable=True, color=discord.Color.default())
-        if role:
-            try: await self.player_member.add_roles(role)
-            except: pass
+            role_name = f"{rank_earned} {self.gamemode}"
+            role = discord.utils.get(guild.roles, name=role_name)
+            if not role:
+                role = await guild.create_role(name=role_name, mentionable=True, color=discord.Color.default())
+            if role:
+                try: await self.player_member.add_roles(role)
+                except: pass
 
         await update_board_message(guild, self.gamemode)
         
