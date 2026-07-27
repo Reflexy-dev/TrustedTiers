@@ -127,7 +127,7 @@ class MinecraftNameModal(discord.ui.Modal):
 
         for gm, q in queues.items():
             if any(p['user_id'] == user_id for p in q):
-                await interaction.response.send_message(f"❌ You are already in the queue for **{gm}**!", ephemeral=True)
+                await interaction.response.send_message(f"❌ You are already in a queue!", ephemeral=True)
                 return
 
         player_data = {
@@ -246,7 +246,7 @@ class HighTierResultModal(discord.ui.Modal):
             required=True
         )
         self.new_rank = discord.ui.TextInput(
-            label="New Rank Earned (HT3, LT2, HT2, LT1, HT1) or LT3 (Fail)",
+            label="New Rank Earned (HT3, LT2...) or LT3 (Fail)",
             placeholder="Ex: HT3 or LT3",
             required=True
         )
@@ -397,7 +397,7 @@ class StaffControlView(discord.ui.View):
         await interaction.message.edit(embed=generate_queue_embed(self.gamemode), view=self)
 
 
-# --- 2 PULSANTI NELLA STANZA MATCH ---
+# --- 2 PULSANTI NELLA STANZA MATCH (MODALE APERTO SUBITO SENZA TIMEOUT) ---
 class TesterPrivateEvalView(discord.ui.View):
     def __init__(self, player_member, mc_name, gamemode, channel_id, region):
         super().__init__(timeout=None)
@@ -407,27 +407,29 @@ class TesterPrivateEvalView(discord.ui.View):
         self.channel_id = channel_id
         self.region = region
 
-    async def clear_channel_background(self, interaction: discord.Interaction):
+    async def clear_channel_background(self, channel):
         try:
-            channel = interaction.channel
             async for message in channel.history(limit=50):
-                if message.id != interaction.message.id:
-                    try:
-                        await message.delete()
-                    except Exception:
-                        pass
+                try:
+                    await message.delete()
+                except Exception:
+                    pass
         except Exception:
             pass
 
     @discord.ui.button(label="🟢 TierTest (LT5 - LT3)", style=discord.ButtonStyle.green)
     async def standard_test_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # 1. Apriamo SUBITO il modale per evitare il timeout di Discord
         await interaction.response.send_modal(StandardResultModal(self.player_member, self.mc_name, self.gamemode, self.channel_id, self.region))
-        asyncio.create_task(self.clear_channel_background(interaction))
+        # 2. Puliamo i messaggi della chat in background
+        asyncio.create_task(self.clear_channel_background(interaction.channel))
 
     @discord.ui.button(label="🔥 HighTierTest (HT3 - HT1)", style=discord.ButtonStyle.blurple)
     async def high_tier_test_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # 1. Apriamo SUBITO il modale per evitare il timeout di Discord
         await interaction.response.send_modal(HighTierResultModal(self.player_member, self.mc_name, self.gamemode, self.channel_id, self.region))
-        asyncio.create_task(self.clear_channel_background(interaction))
+        # 2. Puliamo i messaggi della chat in background
+        asyncio.create_task(self.clear_channel_background(interaction.channel))
 
 
 # --- GENERAZIONE EMBED WAITLIST ---
@@ -509,6 +511,13 @@ async def setup_board(interaction: discord.Interaction, gamemode: str):
 @bot.tree.command(name="leave", description="Leave your current queue")
 async def leave_cmd(interaction: discord.Interaction):
     user_id = interaction.user.id
+
+    # Blocco se il giocatore è già dentro una stanza match attiva (evita abusi)
+    for channel in interaction.guild.text_channels:
+        if channel.name.startswith("match-") and str(user_id) in str(channel.overwrites):
+            await interaction.response.send_message("❌ You cannot use `/leave` while you are currently in an active match room!", ephemeral=True)
+            return
+
     found = False
     for gm in GAMEMODES:
         q = queues[gm]
