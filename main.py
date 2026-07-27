@@ -84,12 +84,6 @@ async def check_queue_timeouts():
         for player in queues[gm]:
             if (now - player['joined_at']).total_seconds() > 3600:
                 updated = True
-                try:
-                    user = bot.get_user(player['user_id'])
-                    if user:
-                        await user.send(f"⏱️ You have been removed from the **{gm}** queue because 1 hour passed without a match.")
-                except Exception:
-                    pass
             else:
                 new_queue.append(player)
         
@@ -234,7 +228,7 @@ class StandardResultModal(discord.ui.Modal):
             except Exception: pass
 
 
-# --- MODALE RISULTATO HIGH TIER TEST (HT3 IN POI, MINIMO LT3 SE FALLISCE) ---
+# --- MODALE RISULTATO HIGH TIER TEST ---
 class HighTierResultModal(discord.ui.Modal):
     def __init__(self, player_member, mc_name, gamemode, ticket_channel_id, region):
         super().__init__(title=f"High Tier Match - {gamemode}")
@@ -275,7 +269,6 @@ class HighTierResultModal(discord.ui.Modal):
             await interaction.response.send_message("❌ A player being tested cannot be Unranked! Please enter a valid earned tier.", ephemeral=True)
             return
 
-        # Controllo che nei high tier test non si possa mettere meno di LT3
         allowed_high_result_tiers = ["LT3", "HT3", "LT2", "HT2", "LT1", "HT1"]
         if rank_earned not in allowed_high_result_tiers:
             await interaction.response.send_message("❌ In a High Tier Test, the lowest result you can assign if they fail is **LT3**!", ephemeral=True)
@@ -401,16 +394,10 @@ class StaffControlView(discord.ui.View):
         eval_view = TesterPrivateEvalView(player_member, current_player['mc_name'], self.gamemode, match_room.id, current_player['region'])
         
         await match_room.send(content=f"⚡ **Match Room:** {player_member.mention} vs {interaction.user.mention}\n*The match has started! Use the buttons below to assign the result.*", view=eval_view)
-        
-        try:
-            await player_member.send(f"🎮 Your turn for the **{self.gamemode}** test has arrived! Join the dedicated channel: {match_room.mention}")
-        except Exception:
-            pass
-
         await interaction.message.edit(embed=generate_queue_embed(self.gamemode), view=self)
 
 
-# --- 2 PULSANTI SEPARATI NELLA STANZA MATCH CON PULIZIA CHAT AUTOMATICA ---
+# --- 2 PULSANTI NELLA STANZA MATCH ---
 class TesterPrivateEvalView(discord.ui.View):
     def __init__(self, player_member, mc_name, gamemode, channel_id, region):
         super().__init__(timeout=None)
@@ -420,7 +407,7 @@ class TesterPrivateEvalView(discord.ui.View):
         self.channel_id = channel_id
         self.region = region
 
-    async def clear_channel_messages(self, interaction: discord.Interaction):
+    async def clear_channel_background(self, interaction: discord.Interaction):
         try:
             channel = interaction.channel
             async for message in channel.history(limit=50):
@@ -434,13 +421,13 @@ class TesterPrivateEvalView(discord.ui.View):
 
     @discord.ui.button(label="🟢 TierTest (LT5 - LT3)", style=discord.ButtonStyle.green)
     async def standard_test_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.clear_channel_messages(interaction)
         await interaction.response.send_modal(StandardResultModal(self.player_member, self.mc_name, self.gamemode, self.channel_id, self.region))
+        asyncio.create_task(self.clear_channel_background(interaction))
 
     @discord.ui.button(label="🔥 HighTierTest (HT3 - HT1)", style=discord.ButtonStyle.blurple)
     async def high_tier_test_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.clear_channel_messages(interaction)
         await interaction.response.send_modal(HighTierResultModal(self.player_member, self.mc_name, self.gamemode, self.channel_id, self.region))
+        asyncio.create_task(self.clear_channel_background(interaction))
 
 
 # --- GENERAZIONE EMBED WAITLIST ---
@@ -480,7 +467,6 @@ async def setup_panel(interaction: discord.Interaction):
         await interaction.response.send_message("❌ Only administrators can use this command.", ephemeral=True)
         return
 
-    # Rimuove l'etichetta del comando "Nome ha usato /setup_panel" rispondendo in modo deferito ed eliminando l'invocazione se possibile
     await interaction.response.defer(thinking=True, ephemeral=True)
     await interaction.delete_original_response()
 
@@ -518,7 +504,6 @@ async def setup_board(interaction: discord.Interaction, gamemode: str):
         await waitlist_channel.set_permissions(tester_role, read_messages=True, send_messages=False)
 
     await waitlist_channel.send(embed=generate_queue_embed(gamemode), view=StaffControlView(gamemode))
-    # Messaggio di conferma temporaneo direttamente inviato tramite canale privato/staff o evitandolo del tutto per pulizia
 
 
 @bot.tree.command(name="leave", description="Leave your current queue")
