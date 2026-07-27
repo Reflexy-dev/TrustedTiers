@@ -467,34 +467,52 @@ async def leave_cmd(interaction: discord.Interaction):
     else:
         await interaction.response.send_message("❌ You are not in any queue.", ephemeral=True)
 
-@bot.tree.command(name="kickqueue", description="Kick a user from a specific gamemode queue (Staff only)")
-@app_commands.describe(gamemode="The gamemode queue", member="The member to kick")
-async def kickqueue(interaction: discord.Interaction, gamemode: str, member: discord.Member):
-    has_role = any(role.name == f"Tester {gamemode}" for role in interaction.user.roles)
-    if not (has_role or interaction.user.guild_permissions.administrator):
-        await interaction.response.send_message("❌ You are not authorized to manage this queue.", ephemeral=True)
+@bot.tree.command(name="kickqueue", description="Kick a user from your gamemode queue (Tester only)")
+@app_commands.describe(member="The member to kick from your queue")
+async def kickqueue(interaction: discord.Interaction, member: discord.Member):
+    user_roles = [role.name for role in interaction.user.roles]
+    managed_gamemodes = [gm for gm in GAMEMODES if f"Tester {gm}" in user_roles]
+    
+    if not managed_gamemodes and not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ You must be a Tester to use this command.", ephemeral=True)
         return
 
-    if gamemode not in GAMEMODES:
-        await interaction.response.send_message("❌ Invalid gamemode.", ephemeral=True)
+    target_gamemode = None
+    for gm in GAMEMODES:
+        if any(p['user_id'] == member.id for p in queues[gm]):
+            if interaction.user.guild_permissions.administrator or f"Tester {gm}" in user_roles:
+                target_gamemode = gm
+                break
+
+    if not target_gamemode:
+        # Fallback if member is not found in any queue, check if staff has a specific role and use the first one they manage
+        if managed_gamemodes:
+            target_gamemode = managed_gamemodes[0]
+        else:
+            await interaction.response.send_message(f"❌ {member.mention} is not in any active queue.", ephemeral=True)
+            return
+
+    # Check if tester only manages this specific queue (unless admin)
+    if not interaction.user.guild_permissions.administrator and f"Tester {target_gamemode}" not in user_roles:
+        await interaction.response.send_message(f"❌ You can only kick players from your own assigned gamemode queue!", ephemeral=True)
         return
 
-    player_entry = next((p for p in queues[gamemode] if p['user_id'] == member.id), None)
+    player_entry = next((p for p in queues[target_gamemode] if p['user_id'] == member.id), None)
     if player_entry:
-        queues[gamemode].remove(player_entry)
+        queues[target_gamemode].remove(player_entry)
         save_data()
-        await update_board_message(interaction.guild, gamemode)
-        waitlist_channel = discord.utils.get(interaction.guild.text_channels, name=f"waitlist-{gamemode.lower()}")
+        await update_board_message(interaction.guild, target_gamemode)
+        waitlist_channel = discord.utils.get(interaction.guild.text_channels, name=f"waitlist-{target_gamemode.lower()}")
         if waitlist_channel:
             try: await waitlist_channel.set_permissions(member, overwrite=None)
             except Exception: pass
-        await interaction.response.send_message(f"✅ Successfully kicked {member.mention} from the **{gamemode}** queue.", ephemeral=True)
-        try: await member.send(f"⚠️ You have been kicked from the **{gamemode}** queue by a staff member.")
+        await interaction.response.send_message(f"✅ Successfully kicked {member.mention} from the **{target_gamemode}** queue.", ephemeral=True)
+        try: await member.send(f"⚠️ You have been kicked from the **{target_gamemode}** queue by a staff member.")
         except Exception: pass
     else:
-        await interaction.response.send_message(f"❌ {member.mention} is not in the **{gamemode}** queue.", ephemeral=True)
+        await interaction.response.send_message(f"❌ {member.mention} is not in the **{target_gamemode}** queue.", ephemeral=True)
 
-@bot.tree.command(name="retier", description="Retire from a gamemode test status")
+@bot.tree.command(name="retier", description="Retire from a gamemode test status after 35 days")
 @app_commands.describe(gamemodes="Comma-separated list of gamemodes (e.g. Sword, UHC)")
 async def retier(interaction: discord.Interaction, gamemodes: str):
     user_id = interaction.user.id
@@ -539,7 +557,7 @@ async def retier(interaction: discord.Interaction, gamemodes: str):
     
     await interaction.response.send_message("\n".join(msg), ephemeral=True)
 
-@bot.unretire = bot.tree.command(name="unretire", description="Cancel your retirement after 35 days")
+@bot.tree.command(name="unretire", description="Cancel your retirement 35 days after retiring")
 @app_commands.describe(gamemodes="Comma-separated list of gamemodes (e.g. Sword, UHC)")
 async def unretire_cmd(interaction: discord.Interaction, gamemodes: str):
     user_id = interaction.user.id
