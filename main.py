@@ -4,7 +4,6 @@ from discord.ext import commands, tasks
 import datetime
 import asyncio
 import os
-import aiohttp
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 
@@ -419,16 +418,12 @@ class TesterPrivateEvalView(discord.ui.View):
 
     @discord.ui.button(label="🟢 TierTest (LT5 - LT3)", style=discord.ButtonStyle.green)
     async def standard_test_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # 1. Apriamo SUBITO il modale per evitare il timeout di Discord
         await interaction.response.send_modal(StandardResultModal(self.player_member, self.mc_name, self.gamemode, self.channel_id, self.region))
-        # 2. Puliamo i messaggi della chat in background
         asyncio.create_task(self.clear_channel_background(interaction.channel))
 
     @discord.ui.button(label="🔥 HighTierTest (HT3 - HT1)", style=discord.ButtonStyle.blurple)
     async def high_tier_test_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # 1. Apriamo SUBITO il modale per evitare il timeout di Discord
         await interaction.response.send_modal(HighTierResultModal(self.player_member, self.mc_name, self.gamemode, self.channel_id, self.region))
-        # 2. Puliamo i messaggi della chat in background
         asyncio.create_task(self.clear_channel_background(interaction.channel))
 
 
@@ -480,7 +475,7 @@ async def setup_panel(interaction: discord.Interaction):
     await interaction.channel.send(embed=embed, view=MainPanelView())
 
 
-@bot.tree.command(name="setup_board", description="Creates the waitlist channel for a gamemode (Write-locked for everyone)")
+@bot.tree.command(name="setup_board", description="Creates the waitlist channel for a gamemode")
 @app_commands.describe(gamemode="Name of the gamemode")
 async def setup_board(interaction: discord.Interaction, gamemode: str):
     if not interaction.user.guild_permissions.administrator:
@@ -512,7 +507,6 @@ async def setup_board(interaction: discord.Interaction, gamemode: str):
 async def leave_cmd(interaction: discord.Interaction):
     user_id = interaction.user.id
 
-    # Blocco se il giocatore è già dentro una stanza match attiva (evita abusi)
     for channel in interaction.guild.text_channels:
         if channel.name.startswith("match-") and str(user_id) in str(channel.overwrites):
             await interaction.response.send_message("❌ You cannot use `/leave` while you are currently in an active match room!", ephemeral=True)
