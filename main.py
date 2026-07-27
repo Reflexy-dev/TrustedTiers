@@ -4,6 +4,7 @@ from discord.ext import commands
 import datetime
 import asyncio
 import os
+import aiohttp
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 
@@ -29,82 +30,178 @@ INTENTS.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=INTENTS)
 
-GAMEMODES = {
-    "Sword": "⚔️", "Axe": "🪓", "UHC": "🍎", "DiaPot": "💎", 
-    "NethPot": "🔥", "DiaSMP": "🛡️", "SMP": "🏡", "SpearMace": "🔱", 
-    "Mace": "🔨", "Cart": "🛒", "Crystal": "🔮"
+GAMEMODE_EMOJIS = {
+    "Sword": "⚔️", "Axe": "🪓", "UHC": "🍎", "DiaPot": "💎", "NethPot": "🔥",
+    "DiaSMP": "🛡️", "SMP": "🏡", "SpearMace": "🔱", "Mace": "🔨", "Cart": "🛒", "Crystal": "🔮"
 }
+GAMEMODES = list(GAMEMODE_EMOJIS.keys())
 
-queue_data = {gm: [] for gm in GAMEMODES}       # Lista di user_id
-testers_data = {gm: [] for gm in GAMEMODES}     # Lista di user_id tester attivi
-active_tests = {}
+queues = {gm: [] for gm in GAMEMODES}
+active_testers = {gm: None for gm in GAMEMODES}
 cooldowns = {}
-retiered_users = {}
-
+retirements = {}
 CATEGORY_NAME = "🎯Tierlist"
 
 
-# --- MODALE PRENOTAZIONE ---
-class BookingModal(discord.ui.Modal):
+def is_high_tier(rank_earned: str) -> bool:
+    rank_lower = rank_earned.lower()
+    high_keywords = ["lt1", "ht1", "lt2", "ht2", "ht3", "tier 1", "tier 2", "tier 3"]
+    if any(k in rank_lower for k in high_keywords):
+        if "ht3" in rank_lower or "tier 3" in rank_lower:
+            return "high" in rank_lower or "ht3" in rank_lower
+        return True
+    return False
+
+
+# --- MODALE INSERIMENTO NICK MINECRAFT ---
+class MinecraftNameModal(discord.ui.Modal):
     def __init__(self, gamemode: str):
-        super().__init__(title=f"Book Test: {gamemode}")
+        super().__init__(title=f"Queue: {gamemode}")
         self.gamemode = gamemode
 
-        self.ign = discord.ui.TextInput(
-            label="Minecraft Nickname",
-            placeholder="Insert your nick...",
+        self.mc_name = discord.ui.TextInput(
+            label="Minecraft Username",
+            placeholder="ex: Steve...",
             required=True
         )
         self.region = discord.ui.TextInput(
             label="Region",
-            placeholder="EU, NA, ASIA...",
+            placeholder="EU, NA, AS...",
+            default="EU",
             required=True,
             max_length=10
         )
-        self.add_item(self.ign)
+        self.add_item(self.mc_name)
         self.add_item(self.region)
 
     async def on_submit(self, interaction: discord.Interaction):
-        user = interaction.user
-        now = datetime.datetime.utcnow()
+        user_id = interaction.user.id
+        
+        if len(queues[self.gamemode]) >= 20:
+            await interaction.response.send_message("❌ Queue is full (Max 20)!", ephemeral=True)
+            return
 
-        if user.id in cooldowns and user.id != interaction.guild.owner_id:
-            time_left = cooldowns[user.id] - now
-            if time_left.total_seconds() > 0:
-                hours = int(time_left.total_seconds() // 3600)
-                await interaction.response.send_message(
-                    f"❌ You are on cooldown! Wait another **{hours} hours**.", ephemeral=True
-                )
-                return
-
-        for gm, q in queue_data.items():
-            if user.id in q:
+        for gm, q in queues.items():
+            if any(p['user_id'] == user_id for p in q):
                 await interaction.response.send_message("❌ You are already in a queue!", ephemeral=True)
                 return
 
-        for gm, test in active_tests.items():
-            if test.get("player_id") == user.id:
-                await interaction.response.send_message("❌ You are currently in an active test!", ephemeral=True)
-                return
+        player_data = {
+            'user_id': user_id,
+            'mc_name': self.mc_name.value.strip(),
+            'region': self.region.value.upper().strip()
+        }
 
-        if len(queue_data[self.gamemode]) >= 20:
-            await interaction.response.send_message("❌ The queue is full (Max 20)!l", ephemeral=True)
-            return
-
-        queue_data[self.gamemode].append(user.id)
+        queues[self.gamemode].append(player_data)
         await update_board_message(interaction.guild, self.gamemode)
         
         await interaction.response.send_message(
-            f"✅ Successfully joined the **{self.gamemode}** queue! Position: `{len(queue_data[self.gamemode])}`",
-            ephemeral=True
+            f"✅ Successfully joined the **{self.gamemode}** queue!", ephemeral=True
         )
 
 
-# --- VIEW PANNELLO PRINCIPALE ---
+# --- MODALE VALUTAZIONE FINALE (SOLO 2 CAMPI INIZIALI + MATCH SCORE SE HT3+) ---
+class FastResultModal(discord.ui.Modal):
+    def __init__(self, player_member, mc_name, gamemode, ticket_channel_id, region):
+        super().__init__(title=f"Assign Tier - {gamemode}")
+        self.player_member = player_member
+        self.mc_name = mc_name
+        self.gamemode = gamemode
+        self.ticket_channel_id = ticket_channel_id
+        self.region = region
+
+        self.prev_rank = discord.ui.TextInput(
+            label="Previous Rank",
+            placeholder="Unranked",
+            default="Unranked",
+            required=True
+        )
+        self.new_rank = discord.ui.TextInput(
+            label="New Rank Earned",
+            placeholder="e.g. LT4, HT3, HT1...",
+            required=True
+        )
+        self.match_score = discord.ui.TextInput(
+            label="Match Score (Only if HT3 or above)",
+            placeholder="e.g. Won 4-1 vs. opponent",
+            required=False
+        )
+
+        self.add_item(self.prev_rank)
+        self.add_item(self.new_rank)
+        self.add_item(self.match_score)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
+        rank_earned = self.new_rank.value.strip()
+        prev_rank_val = self.prev_rank.value.strip() or "Unranked"
+        score_val = self.match_score.value.strip()
+
+        is_high = is_high_tier(rank_earned)
+        if is_high and not score_val:
+            await interaction.followup.send("❌ You must specify the match score for HT3 or above!", ephemeral=True)
+            return
+
+        # Recupero skin corretta da Minecraft tramite Crafty.gg
+        skin_url = f"https://render.crafty.gg/3d/bust/{self.mc_name}"
+
+        if is_high:
+            content_msg = f"{self.player_member.mention} - {self.mc_name} - Promoted to **{rank_earned}**\n\n**Passed Evaluation**\n\n**{rank_earned} Fights**\n| {score_val}"
+            target_channel = discord.utils.get(guild.text_channels, name="🥇│hight-results")
+            if target_channel:
+                msg = await target_channel.send(content=content_msg)
+                for emo in ["👑", "🥳", "😱", "😭", "😂", "💀"]:
+                    try: await msg.add_reaction(emo)
+                    except Exception: pass
+        else:
+            embed = discord.Embed(color=0x5865f2)
+            embed.set_author(name=f"{guild.name}'s Test Results 🏆", icon_url=guild.icon.url if guild.icon else None)
+            embed.set_thumbnail(url=skin_url)
+            embed.add_field(name="Tester:", value=interaction.user.mention, inline=False)
+            embed.add_field(name="Region:", value=self.region, inline=False)
+            embed.add_field(name="Username:", value=self.mc_name, inline=False)
+            embed.add_field(name="Previous Rank:", value=prev_rank_val, inline=False)
+            embed.add_field(name="Rank Earned:", value=rank_earned, inline=False)
+            
+            target_channel = discord.utils.get(guild.text_channels, name="🏆│results")
+            if target_channel:
+                msg = await target_channel.send(content=self.player_member.mention, embed=embed)
+                for emo in ["👑", "🥳", "😱", "😭", "😂", "💀"]:
+                    try: await msg.add_reaction(emo)
+                    except Exception: pass
+
+        # Pulizia coda e assegnazione ruolo
+        queues[self.gamemode] = [p for p in queues[self.gamemode] if p['user_id'] != self.player_member.id]
+        cooldowns[self.player_member.id] = datetime.datetime.utcnow() + datetime.timedelta(days=35)
+
+        for role in self.player_member.roles:
+            if self.gamemode in role.name:
+                try: await self.player_member.remove_roles(role)
+                except: pass
+
+        role_name = f"{rank_earned} {self.gamemode}"
+        role = discord.utils.get(guild.roles, name=role_name)
+        if not role:
+            role = await guild.create_role(name=role_name, mentionable=True, color=discord.Color.default())
+        if role:
+            try: await self.player_member.add_roles(role)
+            except: pass
+
+        await update_board_message(guild, self.gamemode)
+        
+        # ELIMINA COMPLETAMENTE IL CANALE PRIVATO DEL MATCH
+        match_channel = guild.get_channel(self.ticket_channel_id)
+        if match_channel:
+            try: await match_channel.delete()
+            except Exception: pass
+
+
+# --- VIEW PER IL PANNELLO PRINCIPALE ORDINATO A GRIGLIA ---
 class MainPanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
-        for gm, emoji in GAMEMODES.items():
+        for gm, emoji in GAMEMODE_EMOJIS.items():
             self.add_item(MainPanelButton(gm, emoji))
 
 class MainPanelButton(discord.ui.Button):
@@ -113,364 +210,189 @@ class MainPanelButton(discord.ui.Button):
         self.gamemode = gamemode
 
     async def callback(self, interaction: discord.Interaction):
-        modal = BookingModal(self.gamemode)
-        await interaction.response.send_modal(modal)
+        await interaction.response.send_modal(MinecraftNameModal(self.gamemode))
 
 
-# --- VIEW DELLA WAITLIST (stile immagine richiesta) ---
-class WaitlistControlView(discord.ui.View):
+# --- VIEW CONTROLLO WAITLIST (VISIBILE SOLO AI TESTER) ---
+class StaffControlView(discord.ui.View):
     def __init__(self, gamemode: str):
         super().__init__(timeout=None)
         self.gamemode = gamemode
-        self.add_item(JoinQueueButton(gamemode))
-        self.add_item(JoinAsTesterButton(gamemode))
-        self.add_item(NextPlayerButton(gamemode))
+        self.join_tester_btn.custom_id = f"join_t_{gamemode}"
+        self.next_player_btn.custom_id = f"next_p_{gamemode}"
+        self.leave_session_btn.custom_id = f"leave_s_{gamemode}"
 
-class JoinQueueButton(discord.ui.Button):
-    def __init__(self, gamemode: str):
-        super().__init__(style=discord.ButtonStyle.primary, label="Join Queue", custom_id=f"joinqueue_{gamemode}")
-        self.gamemode = gamemode
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        has_role = any(role.name == f"Tester {self.gamemode}" for role in interaction.user.roles)
+        if not (has_role or interaction.user.guild_permissions.administrator):
+            await interaction.response.send_message("❌ Only testers can use these controls.", ephemeral=True)
+            return False
+        return True
 
-    async def callback(self, interaction: discord.Interaction):
-        modal = BookingModal(self.gamemode)
-        await interaction.response.send_modal(modal)
-
-class JoinAsTesterButton(discord.ui.Button):
-    def __init__(self, gamemode: str):
-        super().__init__(style=discord.ButtonStyle.success, label="Join as Tester", custom_id=f"jointester_{gamemode}")
-        self.gamemode = gamemode
-
-    async def callback(self, interaction: discord.Interaction):
-        user_id = interaction.user.id
-        if user_id not in testers_data[self.gamemode]:
-            testers_data[self.gamemode].append(user_id)
-        
-        # Aggiorna permessi del canale in modo che solo i tester vedano i comandi di controllo o accedano
+    @discord.ui.button(label="Join as Tester", style=discord.ButtonStyle.blurple)
+    async def join_tester_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        active_testers[self.gamemode] = interaction.user.id
         role_name = f"Tester {self.gamemode}"
         role = discord.utils.get(interaction.guild.roles, name=role_name)
         if not role:
             role = await interaction.guild.create_role(name=role_name, color=discord.Color.blue())
         await interaction.user.add_roles(role)
+        
+        await interaction.response.edit_message(embed=generate_queue_embed(self.gamemode), view=self)
 
-        await update_board_message(interaction.guild, self.gamemode)
-        await interaction.response.send_message(f"✅ You joined as a tester for **{self.gamemode}**!", ephemeral=True)
-
-class NextPlayerButton(discord.ui.Button):
-    def __init__(self, gamemode: str):
-        super().__init__(style=discord.ButtonStyle.danger, label="Next", custom_id=f"next_{gamemode}")
-        self.gamemode = gamemode
-
-    async def callback(self, interaction: discord.Interaction):
-        tester_role_name = f"Tester {self.gamemode}"
-        is_tester = any(r.name == tester_role_name for r in interaction.user.roles) or (interaction.user.id in testers_data[self.gamemode])
-        is_owner = (interaction.user.id == interaction.guild.owner_id)
-
-        if not is_tester and not is_owner:
-            await interaction.response.send_message("❌ Only active testers for this gamemode can click Next.", ephemeral=True)
-            return
-
-        if not queue_data[self.gamemode]:
+    @discord.ui.button(label="Next Player", style=discord.ButtonStyle.green)
+    async def next_player_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not queues[self.gamemode]:
             await interaction.response.send_message("❌ The queue is empty!", ephemeral=True)
             return
 
-        player_id = queue_data[self.gamemode].pop(0)
-        await update_board_message(interaction.guild, self.gamemode)
-
-        player = interaction.guild.get_member(player_id)
-        if not player:
-            await interaction.response.send_message("❌ Player left the server.", ephemeral=True)
+        current_player = queues[self.gamemode][0]
+        guild = interaction.guild
+        player_member = guild.get_member(current_player['user_id'])
+        
+        if not player_member:
+            queues[self.gamemode].pop(0)
+            await interaction.response.edit_message(embed=generate_queue_embed(self.gamemode), view=self)
             return
 
-        category = interaction.channel.category
+        await interaction.response.defer(ephemeral=True)
+        category = discord.utils.get(guild.categories, name=CATEGORY_NAME) or await guild.create_category(CATEGORY_NAME)
+
         overwrites = {
-            interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False),
+            guild.default_role: discord.PermissionOverwrite(read_messages=False),
             interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
-            player: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+            player_member: discord.PermissionOverwrite(read_messages=True, send_messages=True)
         }
-        test_channel = await interaction.guild.create_text_channel(
-            name=f"test-{player.name}-{self.gamemode.lower()}",
+        
+        match_room = await guild.create_text_channel(
+            name=f"match-{player_member.name}-{self.gamemode.lower()}",
             category=category,
             overwrites=overwrites
         )
 
-        active_tests[self.gamemode] = {
-            "tester_id": interaction.user.id,
-            "player_id": player.id,
-            "channel_id": test_channel.id
-        }
+        eval_view = TesterPrivateEvalView(player_member, current_player['mc_name'], self.gamemode, match_room.id, current_player['region'])
+        await match_room.send(content=f"⚡ **Match Room:** {player_member.mention} vs {interaction.user.mention}", view=eval_view)
+        await interaction.message.edit(embed=generate_queue_embed(self.gamemode), view=self)
 
-        finish_view = FinishTestView(self.gamemode, player)
-        await test_channel.send(
-            f"⚔️ Test started between <@{interaction.user.id}> and <@{player.id}>!\n"
-            f"Click the button below when the test is completed to assign the tier.",
-            view=finish_view
-        )
-
-        await interaction.response.send_message(f"✅ Test started in {test_channel.mention}!", ephemeral=True)
+    @discord.ui.button(label="Leave Session", style=discord.ButtonStyle.red)
+    async def leave_session_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        active_testers[self.gamemode] = None
+        await interaction.response.edit_message(embed=generate_queue_embed(self.gamemode), view=self)
 
 
-# --- MODALE CONCLUSIONE TEST ---
-class FinishTestModal(discord.ui.Modal):
-    def __init__(self, gamemode: str, player: discord.Member):
-        super().__init__(title=f"Assign Tier - {gamemode}")
-        self.gamemode = gamemode
-        self.player = player
-
-        self.old_tier = discord.ui.TextInput(label="Previous Tier", placeholder="Type 'Unranked' if none...", required=True)
-        self.new_tier = discord.ui.TextInput(label="New Tier (e.g. HT3, LT1, HT5...)", placeholder="Insert new tier...", required=True)
-        self.score = discord.ui.TextInput(label="Match Score (If HT3 or above)", placeholder="e.g. 4-1 (Leave blank if below)", required=False)
-
-        self.add_item(self.old_tier)
-        self.add_item(self.new_tier)
-        self.add_item(self.score)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        nt = self.new_tier.value.strip().upper()
-        ot = self.old_tier.value.strip()
-        match_score = self.score.value.strip()
-
-        is_high_tier = ("HT3" in nt or "HT2" in nt or "HT1" in nt)
-        if is_high_tier and not match_score:
-            await interaction.response.send_message("❌ Match score required for HT3 or above!", ephemeral=True)
-            return
-
-        # Tier fissato con nome gamemode e colore bianco puro
-        formatted_tier_name = f"{nt} {self.gamemode}" if self.gamemode not in nt else nt
-        if not formatted_tier_name.endswith(self.gamemode):
-            formatted_tier_name = f"{nt} {self.gamemode}"
-
-        guild = interaction.guild
-        role = discord.utils.get(guild.roles, name=formatted_tier_name)
-        if not role:
-            role = await guild.create_role(
-                name=formatted_tier_name,
-                color=discord.Color.from_rgb(255, 255, 255),
-                hoist=True
-            )
-        
-        for r in self.player.roles:
-            if self.gamemode in r.name and r.name != formatted_tier_name:
-                try:
-                    await self.player.remove_roles(r)
-                except:
-                    pass
-        await self.player.add_roles(role)
-
-        cooldowns[self.player.id] = datetime.datetime.utcnow() + datetime.timedelta(days=7)
-
-        if self.gamemode in active_tests:
-            del active_tests[self.gamemode]
-
-        results_channel = discord.utils.get(guild.text_channels, name="🏆│results")
-        if results_channel:
-            player_ign = self.player.display_name
-            skin_url = f"https://render.crafty.gg/3d/bust/{player_ign}"
-
-            embed = discord.Embed(
-                title=f"Tier Test Result - {self.gamemode}",
-                color=discord.Color.from_rgb(255, 255, 255),
-                timestamp=datetime.datetime.utcnow()
-            )
-            embed.set_thumbnail(url=skin_url)
-            embed.add_field(name="Player", value=f"{self.player.mention} (`{player_ign}`)", inline=False)
-            embed.add_field(name="Old Tier", value=ot, inline=True)
-            embed.add_field(name="New Tier", value=formatted_tier_name, inline=True)
-            
-            if is_high_tier and match_score:
-                embed.add_field(name="Match Score", value=match_score, inline=False)
-
-            await results_channel.send(embed=embed)
-
-        await interaction.response.send_message("✅ Test finalized successfully!", ephemeral=True)
-        channel = interaction.channel
-        await asyncio.sleep(5)
-        await channel.delete()
-
-
-class FinishTestView(discord.ui.View):
-    def __init__(self, gamemode: str, player: discord.Member):
+class TesterPrivateEvalView(discord.ui.View):
+    def __init__(self, player_member, mc_name, gamemode, channel_id, region):
         super().__init__(timeout=None)
+        self.player_member = player_member
+        self.mc_name = mc_name
         self.gamemode = gamemode
-        self.player = player
+        self.channel_id = channel_id
+        self.region = region
 
-    @discord.ui.button(label="Complete & Assign Tier", style=discord.ButtonStyle.danger, custom_id="complete_test_btn")
-    async def complete_test(self, interaction: discord.Interaction, button: discord.ui.Button):
-        modal = FinishTestModal(self.gamemode, self.player)
-        await interaction.response.send_modal(modal)
+    @discord.ui.button(label="⭐ Open Tier Evaluation", style=discord.ButtonStyle.green)
+    async def open_eval(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(FastResultModal(self.player_member, self.mc_name, self.gamemode, self.channel_id, self.region))
 
 
-# --- AGGIORNAMENTO WAITLIST (Stile Immagine) ---
-async def update_board_message(guild: discord.guild, gamemode: str):
-    channel_name = f"waitlist-{gamemode.lower()}"
-    channel = discord.utils.get(guild.text_channels, name=channel_name)
-    if not channel:
-        return
-
-    q = queue_data[gamemode]
-    queue_len = len(q)
+# --- GENERAZIONE EMBED WAITLIST ---
+def generate_queue_embed(gamemode: str):
+    q = queues[gamemode]
+    tester_id = active_testers[gamemode]
     
-    # Costruisce la lista stile immagine con le menzioni
-    queue_list_str = "\n".join([f"`{i+1}.` <@{uid}>" for i, uid in enumerate(q)]) if q else "Queue is empty."
-
-    testers_list = testers_data[gamemode]
-    testers_str = "\n".join([f"`{i+1}.` <@{uid}>" for i, uid in enumerate(testers_list)]) if testers_list else "No active testers."
+    title_status = "🟢 Tester(s) Available!" if tester_id else "⚪ Waiting for Tester(s)..."
+    queue_list = "\n".join([f"`{i+1}.` <@{p['user_id']}> ({p['region']})" for i, p in enumerate(q)]) if q else "*Empty*"
+    tester_mention = f"<@{tester_id}>" if tester_id else "*None*"
 
     embed = discord.Embed(
-        title="",
+        title=title_status,
         description=(
-            "🟢 **Tester(s) Available!**\n"
-            "⚪ The queue updates every 10 seconds.\n"
+            "⚪ The queue updates automatically.\n"
             "Use `/leave` if you wish to be removed from the waitlist or queue.\n\n"
-            f"**Queue ({queue_len}/20):**\n{queue_list_str}\n\n"
-            f"**Active Testers:**\n{testers_str}"
+            f"**__Queue__ ({len(q)}/20):**\n{queue_list}\n\n"
+            f"**Active Testers:**\n{tester_mention}"
         ),
-        color=discord.Color.from_rgb(47, 49, 54)
+        color=0x5865f2
     )
-    
-    async for message in channel.history(limit=10):
-        if message.author == bot.user:
-            await message.edit(embed=embed, view=WaitlistControlView(gamemode))
-            return
-            
-    await channel.send(embed=embed, view=WaitlistControlView(gamemode))
+    return embed
+
+
+async def update_board_message(guild, gamemode):
+    waitlist_channel = discord.utils.get(guild.text_channels, name=f"waitlist-{gamemode.lower()}")
+    if waitlist_channel:
+        async for message in waitlist_channel.history(limit=10):
+            if message.author == bot.user:
+                await message.edit(embed=generate_queue_embed(gamemode), view=StaffControlView(gamemode))
+                break
 
 
 # --- COMANDI SLASH ---
 
-@bot.tree.command(name="setup_panel", description="Create the main gamemode selection panel")
+@bot.tree.command(name="setup_panel", description="Create the main permanent gamemode selection panel")
 async def setup_panel(interaction: discord.Interaction):
-    if not interaction.user.guild_permissions.administrator and interaction.user.id != interaction.guild.owner_id:
+    if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("❌ Admin only.", ephemeral=True)
         return
 
-    await interaction.response.send_message("✅ Main panel created here!", ephemeral=True)
     embed = discord.Embed(
         title="Tier Test Booking Panel",
         description="Click a gamemode below to request a test!",
-        color=discord.Color.blue()
+        color=0x5865f2
     )
-    await interaction.channel.send(embed=embed, view=MainPanelView())
+    await interaction.response.send_message(embed=embed, view=MainPanelView())
 
 
-@bot.tree.command(name="setup_board", description="Create the waitlist channel for a gamemode inside 🎯Tierlist category")
-@app_commands.describe(nome_gamemode="The gamemode name")
-async def setup_board(interaction: discord.Interaction, nome_gamemode: str):
-    if not interaction.user.guild_permissions.administrator and interaction.user.id != interaction.guild.owner_id:
+@bot.tree.command(name="setup_board", description="Create the waitlist channel inside 🎯Tierlist category")
+@app_commands.describe(gamemode="The gamemode name")
+async def setup_board(interaction: discord.Interaction, gamemode: str):
+    if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("❌ Admin only.", ephemeral=True)
         return
 
-    if nome_gamemode not in GAMEMODES:
-        await interaction.response.send_message(f"❌ Invalid gamemode. Choices: {list(GAMEMODES.keys())}", ephemeral=True)
+    if gamemode not in GAMEMODES:
+        await interaction.response.send_message(f"❌ Invalid gamemode.", ephemeral=True)
         return
 
     guild = interaction.guild
-    category = discord.utils.get(guild.categories, name=CATEGORY_NAME)
-    if not category:
-        category = await guild.create_category(CATEGORY_NAME)
+    category = discord.utils.get(guild.categories, name=CATEGORY_NAME) or await guild.create_category(CATEGORY_NAME)
+    
+    waitlist_channel = await guild.create_text_channel(name=f"waitlist-{gamemode.lower()}", category=category)
+    
+    # Rendi la waitlist invisibile ai player comuni se vuoi che la vedano solo i tester, oppure gestisci i permessi
+    await waitlist_channel.set_permissions(guild.default_role, read_messages=False)
+    tester_role = discord.utils.get(guild.roles, name=f"Tester {gamemode}")
+    if tester_role:
+        await waitlist_channel.set_permissions(tester_role, read_messages=True, send_messages=True)
 
-    ch_name = f"waitlist-{nome_gamemode.lower()}"
-    existing_ch = discord.utils.get(guild.text_channels, name=ch_name)
-    if not existing_ch:
-        existing_ch = await guild.create_text_channel(name=ch_name, category=category)
-
-    await interaction.response.send_message(f"✅ Waitlist channel created in {CATEGORY_NAME}: {existing_ch.mention}", ephemeral=True)
-    await update_board_message(guild, nome_gamemode)
+    await waitlist_channel.send(embed=generate_queue_embed(gamemode), view=StaffControlView(gamemode))
+    await interaction.response.send_message(f"✅ Waitlist created for **{gamemode}**!", ephemeral=True)
 
 
-@bot.tree.command(name="leave", description="Leave the queue or tester status")
-async def leave(interaction: discord.Interaction):
+@bot.tree.command(name="leave", description="Leave your current queue or waitlist")
+async def leave_cmd(interaction: discord.Interaction):
     user_id = interaction.user.id
-    removed = False
+    found = False
+    for gm in GAMEMODES:
+        q = queues[gm]
+        for p in q:
+            if p['user_id'] == user_id:
+                q.remove(p)
+                found = True
+                await update_board_message(interaction.guild, gm)
 
-    for gm, q in queue_data.items():
-        if user_id in q:
-            q.remove(user_id)
-            removed = True
-            await update_board_message(interaction.guild, gm)
-
-    for gm, t_list in testers_data.items():
-        if user_id in t_list:
-            t_list.remove(user_id)
-            removed = True
-            await update_board_message(interaction.guild, gm)
-
-    if removed:
-        await interaction.response.send_message("✅ You have been successfully removed.", ephemeral=True)
+    if found:
+        await interaction.response.send_message("✅ You have been removed from the queue.", ephemeral=True)
     else:
-        await interaction.response.send_message("❌ You are not in any queue or active tester list.", ephemeral=True)
-
-
-@bot.tree.command(name="kickqueue", description="Remove a player from the queue")
-@app_commands.describe(user="The player to kick")
-async def kickqueue(interaction: discord.Interaction, user: discord.Member):
-    is_tester = any("Tester" in r.name for r in interaction.user.roles)
-    if not is_tester and interaction.user.id != interaction.guild.owner_id:
-        await interaction.response.send_message("❌ Only testers can use this command.", ephemeral=True)
-        return
-
-    removed = False
-    for gm, q in queue_data.items():
-        if user.id in q:
-            q.remove(user.id)
-            removed = True
-            await update_board_message(interaction.guild, gm)
-
-    if removed:
-        await interaction.response.send_message(f"✅ Player {user.mention} has been kicked from the queue.", ephemeral=True)
-    else:
-        await interaction.response.send_message(f"❌ Player not found in any queue.", ephemeral=True)
-
-
-@bot.tree.command(name="retier", description="Retire from a gamemode tier")
-@app_commands.describe(nome_gamemode="The gamemode name")
-async def retier(interaction: discord.Interaction, nome_gamemode: str):
-    if nome_gamemode not in GAMEMODES:
-        await interaction.response.send_message("❌ Invalid gamemode.", ephemeral=True)
-        return
-
-    user = interaction.user
-    gray_role = discord.utils.get(interaction.guild.roles, name=f"RHT5 {nome_gamemode}")
-    if not gray_role:
-        gray_role = await interaction.guild.create_role(name=f"RHT5 {nome_gamemode}", color=discord.Color.from_rgb(128, 128, 128), hoist=True)
-
-    for r in user.roles:
-        if nome_gamemode in r.name:
-            try:
-                await user.remove_roles(r)
-            except:
-                pass
-
-    await user.add_roles(gray_role)
-    if user.id not in retiered_users:
-        retiered_users[user.id] = {}
-    retiered_users[user.id][nome_gamemode] = True
-
-    await interaction.response.send_message(f"✅ Successfully retired in **{nome_gamemode}**.", ephemeral=True)
-
-
-@bot.tree.command(name="unretier", description="Undo your retirement")
-@app_commands.describe(nome_gamemode="The gamemode name")
-async def unretier(interaction: discord.Interaction, nome_gamemode: str):
-    user_id = interaction.user.id
-    if user_id in retiered_users and nome_gamemode in retiered_users[user_id]:
-        del retiered_users[user_id][nome_gamemode]
-        await interaction.response.send_message(f"✅ Successfully un-retired from **{nome_gamemode}**!", ephemeral=True)
-    else:
-        await interaction.response.send_message("❌ You are not marked as retired in this gamemode.", ephemeral=True)
+        await interaction.response.send_message("❌ You are not in any queue.", ephemeral=True)
 
 
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user.name}!")
-    try:
-        synced = await bot.tree.sync()
-        print(f"Synced {len(synced)} slash commands.")
-    except Exception as e:
-        print(e)
-
+    print(f"Logged in as {bot.user.name}")
+    for gm in GAMEMODES:
+        bot.add_view(StaffControlView(gm))
+    bot.add_view(MainPanelView())
+    await bot.tree.sync()
 
 TOKEN = os.getenv("DISCORD_TOKEN")
-if TOKEN is None:
-    print("❌ ERRORE: Nessun token trovato nelle variabili d'ambiente di Render (DISCORD_TOKEN)!")
-else:
+if TOKEN:
     bot.run(TOKEN)
