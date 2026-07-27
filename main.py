@@ -1,7 +1,3 @@
-Ecco il codice aggiornato e strutturato con tutte le modifiche richieste. Ho modificato la logica dei comandi, rimosso le opzioni di ritiro dal pannello principale lasciandole come comandi separati con i relativi controlli temporali di 35 giorni, implementato il prefisso R per i ruoli da ritirato (es. RHT5 Cart), e corretto la gestione dei permessi dei canali di attesa (waitlist) e dei canali di match privati in modo che vengano nascosti/eliminati correttamente per i player.
-
-Codice Python Aggiornato
-Python
 import discord
 from discord.ext import commands
 from discord import app_commands
