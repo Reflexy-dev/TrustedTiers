@@ -39,21 +39,10 @@ GAMEMODES = list(GAMEMODE_EMOJIS.keys())
 queues = {gm: [] for gm in GAMEMODES}
 active_testers = {gm: None for gm in GAMEMODES}
 cooldowns = {}
-retirements = {}
 CATEGORY_NAME = "🎯Tierlist"
 
 
-def is_high_tier(rank_earned: str) -> bool:
-    rank_lower = rank_earned.strip().lower()
-    high_keywords = ["lt1", "ht1", "lt2", "ht2", "ht3", "tier 1", "tier 2", "tier 3"]
-    if any(k in rank_lower for k in high_keywords):
-        if "ht3" in rank_lower or "tier 3" in rank_lower:
-            return "high" in rank_lower or "ht3" in rank_lower or "tier 3" in rank_lower
-        return True
-    return False
-
-
-# --- BACKGROUND TASK PER TIMEOUT CODA (1 ORA) ---
+# --- TASK BACKGROUND TIMEOUT CODA ---
 @tasks.loop(minutes=1)
 async def check_queue_timeouts():
     now = datetime.datetime.utcnow()
@@ -82,7 +71,7 @@ async def before_timeouts():
     await bot.wait_until_ready()
 
 
-# --- MODALE INSERIMENTO NICK MINECRAFT (SENZA RITARDO) ---
+# --- MODALE INSERIMENTO NICK MINECRAFT ---
 class MinecraftNameModal(discord.ui.Modal):
     def __init__(self, gamemode: str):
         super().__init__(title=f"Queue: {gamemode}")
@@ -109,7 +98,6 @@ class MinecraftNameModal(discord.ui.Modal):
         )
 
         user_id = interaction.user.id
-        
         if len(queues[self.gamemode]) >= 20:
             return
 
@@ -128,10 +116,10 @@ class MinecraftNameModal(discord.ui.Modal):
         await update_board_message(interaction.guild, self.gamemode)
 
 
-# --- MODALE VALUTAZIONE FINALE DINAMICO ---
-class FastResultModal(discord.ui.Modal):
+# --- MODALE RISULTATO TEST STANDARD (LT) ---
+class StandardResultModal(discord.ui.Modal):
     def __init__(self, player_member, mc_name, gamemode, ticket_channel_id, region):
-        super().__init__(title=f"Assign Tier - {gamemode}")
+        super().__init__(title=f"Standard Tier Test - {gamemode}")
         self.player_member = player_member
         self.mc_name = mc_name
         self.gamemode = gamemode
@@ -145,14 +133,86 @@ class FastResultModal(discord.ui.Modal):
             required=True
         )
         self.new_rank = discord.ui.TextInput(
-            label="New Rank Earned",
-            placeholder="e.g. LT4, HT3, HT1...",
+            label="New Rank Earned (LT / Base)",
+            placeholder="e.g. LT4, LT3, Unranked...",
+            required=True
+        )
+        self.add_item(self.prev_rank)
+        self.add_item(self.new_rank)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        rank_earned = self.new_rank.value.strip()
+        prev_rank_val = self.prev_rank.value.strip() or "Unranked"
+
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
+        skin_url = f"https://render.crafty.gg/3d/bust/{self.mc_name}"
+
+        embed = discord.Embed(color=0x5865f2)
+        embed.set_author(name=f"{guild.name}'s Test Results 🏆", icon_url=guild.icon.url if guild.icon else None)
+        embed.set_thumbnail(url=skin_url)
+        embed.add_field(name="Tester:", value=interaction.user.mention, inline=False)
+        embed.add_field(name="Region:", value=self.region, inline=False)
+        embed.add_field(name="Username:", value=self.mc_name, inline=False)
+        embed.add_field(name="Previous Rank:", value=prev_rank_val, inline=False)
+        embed.add_field(name="Rank Earned:", value=rank_earned, inline=False)
+        
+        target_channel = discord.utils.get(guild.text_channels, name="🏆│results")
+        if target_channel:
+            msg = await target_channel.send(content=self.player_member.mention, embed=embed)
+            for emo in ["👑", "🥳", "😱", "😭", "😂", "💀"]:
+                try: await msg.add_reaction(emo)
+                except Exception: pass
+
+        queues[self.gamemode] = [p for p in queues[self.gamemode] if p['user_id'] != self.player_member.id]
+        cooldowns[self.player_member.id] = datetime.datetime.utcnow() + datetime.timedelta(days=35)
+
+        for role in self.player_member.roles:
+            if self.gamemode in role.name:
+                try: await self.player_member.remove_roles(role)
+                except: pass
+
+        role_name = f"{rank_earned} {self.gamemode}"
+        role = discord.utils.get(guild.roles, name=role_name)
+        if not role:
+            role = await guild.create_role(name=role_name, mentionable=True, color=discord.Color.default())
+        if role:
+            try: await self.player_member.add_roles(role)
+            except: pass
+
+        await update_board_message(guild, self.gamemode)
+        
+        match_channel = guild.get_channel(self.ticket_channel_id)
+        if match_channel:
+            try: await match_channel.delete()
+            except Exception: pass
+
+
+# --- MODALE RISULTATO HIGH TIER TEST (HT / RANK ALTI CON MATCH SCORE) ---
+class HighTierResultModal(discord.ui.Modal):
+    def __init__(self, player_member, mc_name, gamemode, ticket_channel_id, region):
+        super().__init__(title=f"High Tier Match - {gamemode}")
+        self.player_member = player_member
+        self.mc_name = mc_name
+        self.gamemode = gamemode
+        self.ticket_channel_id = ticket_channel_id
+        self.region = region
+
+        self.prev_rank = discord.ui.TextInput(
+            label="Previous Rank",
+            placeholder="LT3",
+            default="LT3",
+            required=True
+        )
+        self.new_rank = discord.ui.TextInput(
+            label="New High Rank Earned",
+            placeholder="e.g. HT3, HT2, HT1...",
             required=True
         )
         self.match_score = discord.ui.TextInput(
-            label="Match Score (Obbligatorio solo HT3+)",
-            placeholder="Lascia vuoto se LT4 o inferiore",
-            required=False
+            label="Match Score (Obbligatorio per High Tier)",
+            placeholder="e.g. Won 4-2 vs opponent",
+            required=True
         )
 
         self.add_item(self.prev_rank)
@@ -161,43 +221,19 @@ class FastResultModal(discord.ui.Modal):
 
     async def on_submit(self, interaction: discord.Interaction):
         rank_earned = self.new_rank.value.strip()
-        prev_rank_val = self.prev_rank.value.strip() or "Unranked"
+        prev_rank_val = self.prev_rank.value.strip() or "LT3"
         score_val = self.match_score.value.strip()
-
-        is_high = is_high_tier(rank_earned)
-
-        if is_high and not score_val:
-            await interaction.response.send_message("❌ Per i rank HT3 o superiori il Match Score è obbligatorio!", ephemeral=True)
-            return
 
         await interaction.response.defer(ephemeral=True)
         guild = interaction.guild
-        skin_url = f"https://render.crafty.gg/3d/bust/{self.mc_name}"
 
-        if is_high:
-            content_msg = f"{self.player_member.mention} - {self.mc_name} - Promoted to **{rank_earned}**\n\n**Passed Evaluation**\n\n**{rank_earned} Fights**\n| {score_val}"
-            target_channel = discord.utils.get(guild.text_channels, name="🥇│hight-results")
-            if target_channel:
-                msg = await target_channel.send(content=content_msg)
-                for emo in ["👑", "🥳", "😱", "😭", "😂", "💀"]:
-                    try: await msg.add_reaction(emo)
-                    except Exception: pass
-        else:
-            embed = discord.Embed(color=0x5865f2)
-            embed.set_author(name=f"{guild.name}'s Test Results 🏆", icon_url=guild.icon.url if guild.icon else None)
-            embed.set_thumbnail(url=skin_url)
-            embed.add_field(name="Tester:", value=interaction.user.mention, inline=False)
-            embed.add_field(name="Region:", value=self.region, inline=False)
-            embed.add_field(name="Username:", value=self.mc_name, inline=False)
-            embed.add_field(name="Previous Rank:", value=prev_rank_val, inline=False)
-            embed.add_field(name="Rank Earned:", value=rank_earned, inline=False)
-            
-            target_channel = discord.utils.get(guild.text_channels, name="🏆│results")
-            if target_channel:
-                msg = await target_channel.send(content=self.player_member.mention, embed=embed)
-                for emo in ["👑", "🥳", "😱", "😭", "😂", "💀"]:
-                    try: await msg.add_reaction(emo)
-                    except Exception: pass
+        content_msg = f"{self.player_member.mention} - {self.mc_name} - Promoted to **{rank_earned}**\n\n**Passed High Tier Evaluation**\n\n**{rank_earned} Fights**\n| {score_val}"
+        target_channel = discord.utils.get(guild.text_channels, name="🥇│hight-results")
+        if target_channel:
+            msg = await target_channel.send(content=content_msg)
+            for emo in ["👑", "🥳", "😱", "😭", "😂", "💀"]:
+                try: await msg.add_reaction(emo)
+                except Exception: pass
 
         queues[self.gamemode] = [p for p in queues[self.gamemode] if p['user_id'] != self.player_member.id]
         cooldowns[self.player_member.id] = datetime.datetime.utcnow() + datetime.timedelta(days=35)
@@ -301,6 +337,7 @@ class StaffControlView(discord.ui.View):
         await interaction.message.edit(embed=generate_queue_embed(self.gamemode), view=self)
 
 
+# --- 2 PULSANTI SEPARATI NELLA STANZA MATCH (Standard Test vs High Tier Test) ---
 class TesterPrivateEvalView(discord.ui.View):
     def __init__(self, player_member, mc_name, gamemode, channel_id, region):
         super().__init__(timeout=None)
@@ -310,9 +347,13 @@ class TesterPrivateEvalView(discord.ui.View):
         self.channel_id = channel_id
         self.region = region
 
-    @discord.ui.button(label="⭐ Open Tier Evaluation", style=discord.ButtonStyle.green)
-    async def open_eval(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(FastResultModal(self.player_member, self.mc_name, self.gamemode, self.channel_id, self.region))
+    @discord.ui.button(label="🟢 TierTest (Standard / LT)", style=discord.ButtonStyle.green)
+    async def standard_test_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(StandardResultModal(self.player_member, self.mc_name, self.gamemode, self.channel_id, self.region))
+
+    @discord.ui.button(label="🔥 HighTierTest (HT3+ / Match Score)", style=discord.ButtonStyle.blurple)
+    async def high_tier_test_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(HighTierResultModal(self.player_member, self.mc_name, self.gamemode, self.channel_id, self.region))
 
 
 # --- GENERAZIONE EMBED WAITLIST ---
