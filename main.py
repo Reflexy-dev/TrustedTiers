@@ -64,8 +64,12 @@ def is_valid_promotion(current_rank: str, target_rank: str) -> (bool, str):
     c_idx = TIER_ORDER.index(c_rank)
     t_idx = TIER_ORDER.index(t_rank)
 
-    # Consentiamo la retrocessione (t_idx < c_idx) e il mantenimento del rank.
-    # Per la promozione, consentiamo al massimo 1 step in avanti alla volta.
+    # Regola High Tiers: se il rank attuale è un High Tier (da HT3 in su) e l'utente seleziona un tier inferiore o uguale (fallimento o mantenimento), 
+    # blocchiamo il cambio di ruolo automatico tramite test di promozione (rimane al suo posto).
+    if c_rank in HIGH_TIERS and t_idx <= c_idx:
+        return False, f"High Tier rule: If you fail or match your current tier (`{c_rank}`), you stay at your current rank!"
+
+    # Controllo limite di avanzamento (massimo 1 step in avanti alla volta per le promozioni)
     if t_idx > c_idx + 1:
         next_step = TIER_ORDER[c_idx + 1]
         return False, f"Invalid progression! The player is `{c_rank}` and can only advance to the next rank (`{next_step}`). They cannot skip directly to `{t_rank}`!"
