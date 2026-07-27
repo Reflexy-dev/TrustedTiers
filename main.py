@@ -45,7 +45,6 @@ CATEGORY_NAME = "🎯Tierlist"
 
 def is_high_tier(rank_earned: str) -> bool:
     rank_lower = rank_earned.strip().lower()
-    # Controlla esattamente se il rank inserito è HT3 o superiore (HT3, HT2, HT1, LT1, LT2 o Tier 1-3)
     high_keywords = ["lt1", "ht1", "lt2", "ht2", "ht3", "tier 1", "tier 2", "tier 3"]
     if any(k in rank_lower for k in high_keywords):
         if "ht3" in rank_lower or "tier 3" in rank_lower:
@@ -83,7 +82,7 @@ async def before_timeouts():
     await bot.wait_until_ready()
 
 
-# --- MODALE INSERIMENTO NICK MINECRAFT ---
+# --- MODALE INSERIMENTO NICK MINECRAFT (ORA SENZA RITARDO) ---
 class MinecraftNameModal(discord.ui.Modal):
     def __init__(self, gamemode: str):
         super().__init__(title=f"Queue: {gamemode}")
@@ -105,15 +104,18 @@ class MinecraftNameModal(discord.ui.Modal):
         self.add_item(self.region)
 
     async def on_submit(self, interaction: discord.Interaction):
+        # RISPOSTA IMMEDIATA PER EVITARE QUALSIASI RITARDO O TIMEOUT DI DISCORD
+        await interaction.response.send_message(
+            f"✅ Successfully joined the **{self.gamemode}** queue!", ephemeral=True
+        )
+
         user_id = interaction.user.id
         
         if len(queues[self.gamemode]) >= 20:
-            await interaction.response.send_message("❌ Queue is full (Max 20)!", ephemeral=True)
             return
 
         for gm, q in queues.items():
             if any(p['user_id'] == user_id for p in q):
-                await interaction.response.send_message("❌ You are already in a queue!", ephemeral=True)
                 return
 
         player_data = {
@@ -124,13 +126,10 @@ class MinecraftNameModal(discord.ui.Modal):
         }
 
         queues[self.gamemode].append(player_data)
-        await interaction.response.send_message(
-            f"✅ Successfully joined the **{self.gamemode}** queue!", ephemeral=True
-        )
         await update_board_message(interaction.guild, self.gamemode)
 
 
-# --- MODALE DI RICHIESTA MATCH SCORE (APPARIZIONE CONDIZIONALE) ---
+# --- MODALE DI RICHIESTA MATCH SCORE (SECONDO STEP PER HT3+) ---
 class MatchScoreModal(discord.ui.Modal):
     def __init__(self, player_member, mc_name, gamemode, ticket_channel_id, region, prev_rank, new_rank):
         super().__init__(title=f"Match Score Required - {new_rank}")
@@ -186,7 +185,7 @@ class MatchScoreModal(discord.ui.Modal):
             except Exception: pass
 
 
-# --- MODALE VALUTAZIONE FINALE (SOLO 2 CAMPI: PREVIOUS RANK E NEW RANK) ---
+# --- MODALE VALUTAZIONE FINALE (APRE IL SECONDO MODALE SOLO DOPO L'INVIO SE HT3+) ---
 class FastResultModal(discord.ui.Modal):
     def __init__(self, player_member, mc_name, gamemode, ticket_channel_id, region):
         super().__init__(title=f"Assign Tier - {gamemode}")
@@ -217,7 +216,7 @@ class FastResultModal(discord.ui.Modal):
 
         is_high = is_high_tier(rank_earned)
         
-        # Se è HT3 o superiore, apriamo un SECONDO MODALE dedicato al Match Score e blocchiamo qui la chiusura
+        # Se è HT3 o superiore, apriamo il secondo modale per il match score
         if is_high:
             await interaction.response.send_modal(
                 MatchScoreModal(
@@ -232,7 +231,7 @@ class FastResultModal(discord.ui.Modal):
             )
             return
 
-        # Altrimenti (tier basso come LT4, LT5), procede direttamente senza match score
+        # Altrimenti gestisce direttamente il tier basso
         await interaction.response.defer(ephemeral=True)
         guild = interaction.guild
         skin_url = f"https://render.crafty.gg/3d/bust/{self.mc_name}"
