@@ -64,12 +64,9 @@ def is_valid_promotion(current_rank: str, target_rank: str) -> (bool, str):
     c_idx = TIER_ORDER.index(c_rank)
     t_idx = TIER_ORDER.index(t_rank)
 
-    # Regola High Tiers: se il rank attuale è un High Tier (da HT3 in su) e l'utente seleziona un tier inferiore o uguale (fallimento o mantenimento), 
-    # blocchiamo il cambio di ruolo automatico tramite test di promozione (rimane al suo posto).
     if c_rank in HIGH_TIERS and t_idx <= c_idx:
         return False, f"High Tier rule: If you fail or match your current tier (`{c_rank}`), you stay at your current rank!"
 
-    # Controllo limite di avanzamento (massimo 1 step in avanti alla volta per le promozioni)
     if t_idx > c_idx + 1:
         next_step = TIER_ORDER[c_idx + 1]
         return False, f"Invalid progression! The player is `{c_rank}` and can only advance to the next rank (`{next_step}`). They cannot skip directly to `{t_rank}`!"
@@ -237,7 +234,7 @@ class StandardResultModal(discord.ui.Modal):
             except Exception: pass
 
 
-# --- MODALE RISULTATO HIGH TIER TEST (HT3 IN POI) ---
+# --- MODALE RISULTATO HIGH TIER TEST (HT3 IN POI, MINIMO LT3 SE FALLISCE) ---
 class HighTierResultModal(discord.ui.Modal):
     def __init__(self, player_member, mc_name, gamemode, ticket_channel_id, region):
         super().__init__(title=f"High Tier Match - {gamemode}")
@@ -255,8 +252,8 @@ class HighTierResultModal(discord.ui.Modal):
             required=True
         )
         self.new_rank = discord.ui.TextInput(
-            label="New Rank Earned (HT3, LT2, HT2, LT1, HT1)",
-            placeholder="Ex: HT3",
+            label="New Rank Earned (HT3, LT2, HT2, LT1, HT1) or LT3 (Fail)",
+            placeholder="Ex: HT3 or LT3",
             required=True
         )
         self.match_score = discord.ui.TextInput(
@@ -276,6 +273,12 @@ class HighTierResultModal(discord.ui.Modal):
 
         if rank_earned == "UNRANKED":
             await interaction.response.send_message("❌ A player being tested cannot be Unranked! Please enter a valid earned tier.", ephemeral=True)
+            return
+
+        # Controllo che nei high tier test non si possa mettere meno di LT3
+        allowed_high_result_tiers = ["LT3", "HT3", "LT2", "HT2", "LT1", "HT1"]
+        if rank_earned not in allowed_high_result_tiers:
+            await interaction.response.send_message("❌ In a High Tier Test, the lowest result you can assign if they fail is **LT3**!", ephemeral=True)
             return
 
         if prev_rank_val not in TIER_ORDER or TIER_ORDER.index(prev_rank_val) < TIER_ORDER.index("LT3"):
@@ -477,12 +480,16 @@ async def setup_panel(interaction: discord.Interaction):
         await interaction.response.send_message("❌ Only administrators can use this command.", ephemeral=True)
         return
 
+    # Rimuove l'etichetta del comando "Nome ha usato /setup_panel" rispondendo in modo deferito ed eliminando l'invocazione se possibile
+    await interaction.response.defer(thinking=True, ephemeral=True)
+    await interaction.delete_original_response()
+
     embed = discord.Embed(
-        title="Tier Test Booking Panel",
+        title="Testing Ticket Panel",
         description="Click a gamemode to join the queue!",
         color=0x5865f2
     )
-    await interaction.response.send_message(embed=embed, view=MainPanelView())
+    await interaction.channel.send(embed=embed, view=MainPanelView())
 
 
 @bot.tree.command(name="setup_board", description="Creates the waitlist channel for a gamemode (Write-locked for everyone)")
@@ -496,6 +503,9 @@ async def setup_board(interaction: discord.Interaction, gamemode: str):
         await interaction.response.send_message(f"❌ Invalid gamemode.", ephemeral=True)
         return
 
+    await interaction.response.defer(thinking=True, ephemeral=True)
+    await interaction.delete_original_response()
+
     guild = interaction.guild
     category = discord.utils.get(guild.categories, name=CATEGORY_NAME) or await guild.create_category(CATEGORY_NAME)
     
@@ -508,7 +518,7 @@ async def setup_board(interaction: discord.Interaction, gamemode: str):
         await waitlist_channel.set_permissions(tester_role, read_messages=True, send_messages=False)
 
     await waitlist_channel.send(embed=generate_queue_embed(gamemode), view=StaffControlView(gamemode))
-    await interaction.response.send_message(f"✅ Waitlist for **{gamemode}** created and write-locked!", ephemeral=True)
+    # Messaggio di conferma temporaneo direttamente inviato tramite canale privato/staff o evitandolo del tutto per pulizia
 
 
 @bot.tree.command(name="leave", description="Leave your current queue")
