@@ -4,6 +4,25 @@ from discord.ext import commands
 import datetime
 import asyncio
 import os
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import threading
+
+# --- MINI SERVER WEB PER SODDISFARE RENDER ---
+class SimpleHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is running!")
+
+def run_web_server():
+    port = int(os.getenv("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), SimpleHandler)
+    server.serve_forever()
+
+# Avvia il server web in background in modo che Render rilevi la porta aperta
+threading.Thread(target=run_web_server, daemon=True).start()
+# ---------------------------------------------
+
 
 # --- CONFIGURAZIONE BOT ---
 INTENTS = discord.Intents.default()
@@ -51,7 +70,6 @@ class BookingModal(discord.ui.Modal):
         user = interaction.user
         now = datetime.datetime.utcnow()
 
-        # Controllo Cooldown (7 giorni) tranne per l'Owner
         if user.id in cooldowns and user.id != interaction.guild.owner_id:
             time_left = cooldowns[user.id] - now
             if time_left.total_seconds() > 0:
@@ -62,7 +80,6 @@ class BookingModal(discord.ui.Modal):
                 )
                 return
 
-        # Controllo se è già in una coda qualsiasi
         for gm, q in queue_data.items():
             if any(p["user_id"] == user.id for p in q):
                 await interaction.response.send_message(
@@ -70,7 +87,6 @@ class BookingModal(discord.ui.Modal):
                 )
                 return
 
-        # Controllo se è attualmente in test attivo
         for gm, test in active_tests.items():
             if test.get("player_id") == user.id:
                 await interaction.response.send_message(
@@ -78,7 +94,6 @@ class BookingModal(discord.ui.Modal):
                 )
                 return
 
-        # Inserimento nella coda
         player_info = {
             "user_id": user.id,
             "ign": self.ign.value,
@@ -439,10 +454,10 @@ async def on_ready():
         print(e)
 
 
-# --- AVVIO DEL BOT CON RENDER ENV VAR ---
+# --- AVVIO DEL BOT CON TOKEN DI RENDER ---
 TOKEN = os.getenv("DISCORD_TOKEN")
 
 if TOKEN is None:
     print("❌ ERRORE: Nessun token trovato nelle variabili d'ambiente di Render (DISCORD_TOKEN)!")
 else:
-    bot.run(DISCORD_TOKEN)
+    bot.run(TOKEN)
