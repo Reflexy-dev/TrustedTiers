@@ -1,171 +1,504 @@
-<!DOCTYPE html>
-<html lang="it">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tierlist Ufficiale</title>
-    <style>
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
+<!DOCTYPE html><html lang="it"><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TRUSTEDTIER - MCTiers Style</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', sans-serif; }
+    body { background-color: #0b0f19; color: #a0aec0; min-height: 100vh; padding-bottom: 50px; }
 
-        body {
-            background-color: #1e1f22;
-            color: #ffffff;
-            padding: 30px 15px;
-        }
+    header {
+      background-color: #0f1523;
+      border-bottom: 1px solid #1a2333;
+      padding: 14px 30px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
 
-        .container {
-            max-width: 900px;
-            margin: 0 auto;
-        }
+    .logo-text { font-size: 20px; font-weight: 900; color: #fff; letter-spacing: 0.5px; }
+    .container { max-width: 1280px; margin: 30px auto; padding: 0 20px; }
 
-        h1 {
-            text-align: center;
-            color: #5865F2;
-            margin-bottom: 30px;
-            font-size: 2.2rem;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
+    .category-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #121826;
+      padding: 6px;
+      border-radius: 12px;
+      border: 1px solid #1e283d;
+      margin-bottom: 25px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      gap: 6px;
+    }
 
-        .empty-msg {
-            text-align: center;
-            color: #949ba4;
-            font-size: 1.1rem;
-            margin-top: 40px;
-            background: #2b2d31;
-            padding: 30px;
-            border-radius: 8px;
-        }
+    .category-bar::-webkit-scrollbar { height: 4px; }
+    .category-bar::-webkit-scrollbar-thumb { background: #1e283d; border-radius: 4px; }
 
-        .players-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-            gap: 20px;
-        }
+    .cat-tab {
+      background: transparent;
+      border: none;
+      color: #718096;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      white-space: nowrap;
+      user-select: none;
+      flex: 1;
+      transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+    }
 
-        .player-card {
-            background-color: #2b2d31;
-            border-radius: 10px;
-            padding: 20px;
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
-            border: 1px solid #383a40;
-            transition: transform 0.2s;
-        }
+    .cat-tab img { 
+      width: 32px; 
+      height: 32px; 
+      object-fit: contain; 
+      image-rendering: pixelated;
+    }
 
-        .player-card:hover {
-            transform: translateY(-3px);
-        }
+    .cat-tab:hover { color: #cbd5e0; background: rgba(29, 38, 58, 0.4); }
+    .cat-tab.active { background: #1d263a; color: #ffffff; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
 
-        .player-name {
-            font-size: 1.3rem;
-            font-weight: bold;
-            color: #f2f3f5;
-            margin-bottom: 5px;
-        }
+    /* LAYOUT OVERALL */
+    .table-header {
+      display: grid;
+      grid-template-columns: 90px 1fr 100px auto;
+      padding: 0 20px 10px 20px;
+      font-size: 11px;
+      font-weight: 800;
+      color: #4a5568;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+    .table-header .text-right { text-align: right; }
 
-        .discord-tag {
-            font-size: 0.85rem;
-            color: #949ba4;
-            margin-bottom: 15px;
-        }
+    .leaderboard-list { display: flex; flex-direction: column; gap: 12px; }
 
-        .tiers-list {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
+    .player-card {
+      background: #121826;
+      border: 1px solid #1a2333;
+      border-radius: 12px;
+      height: 78px;
+      display: grid;
+      grid-template-columns: 95px 1fr 100px auto;
+      align-items: center;
+      overflow: visible;
+      position: relative;
+      transition: border-color 0.2s;
+    }
+    .player-card:hover { border-color: #2b3854; }
 
-        .tier-badge {
-            background-color: #313338;
-            padding: 8px 12px;
-            border-radius: 6px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-size: 0.95rem;
-        }
+    .rank-box {
+      height: 78px;
+      width: 95px;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      padding-left: 20px;
+      font-size: 24px;
+      font-weight: 900;
+      font-style: italic;
+      color: #121826;
+      clip-path: polygon(0 0, 75% 0, 100% 100%, 0% 100%);
+      position: relative;
+      z-index: 2;
+      overflow: hidden;
+    }
 
-        .gamemode-title {
-            color: #b5bac1;
-        }
+    /* Effetto sbrilluccichio / riflesso animato per il podio */
+    .rank-box::after {
+      content: '';
+      position: absolute;
+      top: -50%;
+      left: -50%;
+      width: 200%;
+      height: 200%;
+      background: linear-gradient(
+        to right,
+        rgba(255, 255, 255, 0) 0%,
+        rgba(255, 255, 255, 0.4) 50%,
+        rgba(255, 255, 255, 0) 100%
+      );
+      transform: rotate(30deg) translate(-100%, -100%);
+      animation: shine 3s infinite linear;
+    }
 
-        .tier-value {
-            color: #f1c40f;
-            font-weight: bold;
-        }
-    </style>
-</head>
-<body>
+    @keyframes shine {
+      0% { transform: rotate(30deg) translate(-100%, -100%); }
+      20% { transform: rotate(30deg) translate(100%, 100%); }
+      100% { transform: rotate(30deg) translate(100%, 100%); }
+    }
+    
+    /* Colori podio corretti e distinti con glow pulsante */
+    .rank-1 { 
+      background: linear-gradient(135deg, #ffd000, #cca100); 
+      color: #121826; 
+      box-shadow: inset 0 0 15px rgba(255, 221, 0, 0.6), 0 0 12px rgba(255, 183, 3, 0.4);
+      animation: pulse-gold 2s infinite alternate;
+    }
+    .rank-2 { 
+      background: linear-gradient(135deg, #f1f5f9, #cbd5e1); 
+      color: #121826; 
+      box-shadow: inset 0 0 15px rgba(255, 255, 255, 0.6), 0 0 10px rgba(203, 213, 225, 0.3);
+      animation: pulse-silver 2s infinite alternate;
+    }
+    .rank-3 { 
+      background: linear-gradient(135deg, #f59e0b, #b45309); 
+      color: #121826; 
+      box-shadow: inset 0 0 15px rgba(245, 158, 11, 0.6), 0 0 10px rgba(217, 119, 6, 0.4);
+      animation: pulse-bronze 2s infinite alternate;
+    }
+    .rank-other { background: #1a2333; color: #a0aec0; }
 
-    <div class="container">
-        <h1>🏆 Tierlist Giocatori</h1>
-        <div id="tierlist-container">
-            <p class="empty-msg">Caricamento in corso...</p>
-        </div>
+    @keyframes pulse-gold {
+      0% { filter: brightness(1); box-shadow: inset 0 0 15px rgba(255, 221, 0, 0.6), 0 0 8px rgba(255, 183, 3, 0.3); }
+      100% { filter: brightness(1.15); box-shadow: inset 0 0 20px rgba(255, 240, 100, 0.8), 0 0 16px rgba(255, 215, 0, 0.7); }
+    }
+
+    @keyframes pulse-silver {
+      0% { filter: brightness(1); box-shadow: inset 0 0 15px rgba(255, 255, 255, 0.6), 0 0 8px rgba(203, 213, 225, 0.3); }
+      100% { filter: brightness(1.15); box-shadow: inset 0 0 20px rgba(255, 255, 255, 0.9), 0 0 16px rgba(241, 245, 249, 0.6); }
+    }
+
+    @keyframes pulse-bronze {
+      0% { filter: brightness(1); box-shadow: inset 0 0 15px rgba(245, 158, 11, 0.6), 0 0 8px rgba(217, 119, 6, 0.3); }
+      100% { filter: brightness(1.15); box-shadow: inset 0 0 20px rgba(252, 211, 77, 0.8), 0 0 16px rgba(245, 158, 11, 0.7); }
+    }
+
+    .player-info { 
+      display: flex; 
+      align-items: center; 
+      gap: 18px; 
+      position: relative;
+      z-index: 3;
+      margin-left: -12px;
+    }
+
+    /* Skin altissima nitidezza senza sfocature */
+    .player-avatar { 
+      width: 64px; 
+      height: 64px; 
+      object-fit: contain; 
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      -webkit-font-smoothing: antialiased;
+      filter: drop-shadow(3px 5px 8px rgba(0,0,0,0.6));
+    }
+
+    .player-details { display: flex; flex-direction: column; justify-content: center; }
+    .player-name { font-size: 18px; font-weight: 800; color: #ffffff; line-height: 1.2; }
+    .player-subtitle { font-size: 12px; font-weight: 600; color: #718096; }
+
+    .region-badge {
+      width: 34px;
+      height: 24px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-transform: uppercase;
+    }
+    .region-EU { background: #22543d; color: #68d391; }
+    .region-NA { background: #742a2a; color: #fc8181; }
+
+    .tiers-flex { display: flex; align-items: center; gap: 10px; padding-right: 20px; }
+    .tier-item { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+
+    .icon-circle {
+      width: 42px;
+      height: 42px;
+      background: #0b0f19;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid #1d263a;
+    }
+    .icon-circle img { width: 32px; height: 32px; object-fit: contain; image-rendering: pixelated; }
+    .tier-label { font-size: 11px; font-weight: 900; }
+    .tier-HT1, .tier-LT1 { color: #ffb703; }
+    .tier-HT2, .tier-LT2 { color: #38bdf8; }
+    .tier-HT3, .tier-LT3 { color: #f43f5e; }
+    .tier-HT4, .tier-LT4 { color: #a855f7; }
+    .tier-HT5, .tier-LT5 { color: #94a3b8; }
+
+    /* LAYOUT A COLONNE PER CATEGORIA */
+    .tier-columns-container {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 15px;
+    }
+    @media (max-width: 1024px) {
+      .tier-columns-container { grid-template-columns: 1fr; }
+    }
+
+    .tier-column {
+      background: #121826;
+      border: 1px solid #1a2333;
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .tier-column-header {
+      background: #1a2333;
+      padding: 14px;
+      text-align: center;
+      font-size: 15px;
+      font-weight: 900;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border-bottom: 1px solid #232d42;
+    }
+
+    .tier-column-header.t1 { 
+      background: linear-gradient(135deg, rgba(255, 209, 0, 0.18), rgba(204, 161, 0, 0.08)); 
+      color: #ffd000; 
+      border-bottom-color: rgba(255, 209, 0, 0.3); 
+    }
+    .tier-column-header.t2 { 
+      background: linear-gradient(135deg, rgba(241, 245, 249, 0.12), rgba(203, 213, 225, 0.05)); 
+      color: #e2e8f0; 
+      border-bottom-color: rgba(241, 245, 249, 0.2); 
+    }
+    .tier-column-header.t3 { 
+      background: linear-gradient(135deg, rgba(245, 158, 11, 0.18), rgba(180, 83, 9, 0.08)); 
+      color: #f59e0b; 
+      border-bottom-color: rgba(245, 158, 11, 0.3); 
+    }
+    .tier-column-header.t4 { 
+      background: #161c29; 
+      color: #94a3b8; 
+      border-bottom-color: #232d42; 
+    }
+    .tier-column-header.t5 { 
+      background: #161c29; 
+      color: #94a3b8; 
+      border-bottom-color: #232d42; 
+    }
+
+    .tier-column-body {
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .column-player-card {
+      background: #0f1523;
+      border: 1px solid #1a2333;
+      border-radius: 8px;
+      padding: 8px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .column-player-left { display: flex; align-items: center; gap: 10px; }
+    
+    /* Skin nitide anche nelle colonne */
+    .column-player-avatar { 
+      width: 38px; 
+      height: 38px; 
+      object-fit: contain; 
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+    }
+    .column-player-name { font-size: 14px; font-weight: 800; color: #fff; }
+
+    .empty-msg {
+      text-align: center;
+      padding: 50px;
+      color: #4a5568;
+      font-size: 15px;
+      font-weight: 700;
+      background: #121826;
+      border-radius: 10px;
+      border: 1px dashed #1a2333;
+    }
+  </style></head><body>
+
+  <header>
+    <div class="logo-text">TRUSTEDTIER</div>
+  </header>
+
+  <div class="container">
+    <div class="category-bar" id="categoryBar">
+      <button class="cat-tab active" data-key="Overall" onclick="selectCategory('Overall')"><img src="https://minecraft.wiki/images/Golden_Apple_JE2_BE2.png?aa827" alt="Overall"> Overall</button>
+      <button class="cat-tab" data-key="Sword" onclick="selectCategory('Sword')"><img src="https://minecraft.wiki/images/Diamond_Sword_JE3_BE3.png?24296" alt="Sword"> Sword</button>
+      <button class="cat-tab" data-key="Axe" onclick="selectCategory('Axe')"><img src="https://minecraft.wiki/images/Diamond_Axe_JE3_BE3.png?99125" alt="Axe"> Axe</button>
+      <button class="cat-tab" data-key="UHC" onclick="selectCategory('UHC')"><img src="https://minecraft.wiki/images/Golden_Apple_JE2_BE2.png?aa827" alt="UHC"> UHC</button>
+      <button class="cat-tab" data-key="DiaPot" onclick="selectCategory('DiaPot')"><img src="https://minecraft.wiki/images/Splash_Potion_of_Healing_JE2_BE2.png?d45f1" alt="DiaPot"> DiaPot</button>
+      <button class="cat-tab" data-key="NethPot" onclick="selectCategory('NethPot')"><img src="https://minecraft.wiki/images/Netherite_Sword_JE2_BE2.png?8e866" alt="NethPot"> NethPot</button>
+      <button class="cat-tab" data-key="Cart" onclick="selectCategory('Cart')"><img src="https://minecraft.wiki/images/Minecart_with_TNT_%28item%29_JE2_BE2.png?61a90" alt="Cart"> Cart</button>
+      <button class="cat-tab" data-key="Crystal" onclick="selectCategory('Crystal')"><img src="https://minecraft.wiki/images/End_Crystal_%28item%29_JE2_BE2.png?e1ecd" alt="Crystal"> Crystal</button>
     </div>
 
-    <script>
-        async function loadTierlist() {
-            const container = document.getElementById('tierlist-container');
-            
-            try {
-                // Legge il file data.json aggiornato dal bot
-                const response = await fetch('./data.json?cache_bust=' + new Date().getTime());
-                
-                if (!response.ok) {
-                    throw new Error('File data.json non ancora disponibile.');
-                }
+    <div id="contentArea"></div>
+  </div>
 
-                const players = await response.json();
+  <script>
+    const ITEM_ICONS = {
+      'Overall': 'https://minecraft.wiki/images/Golden_Apple_JE2_BE2.png?aa827',
+      'Sword': 'https://minecraft.wiki/images/Diamond_Sword_JE3_BE3.png?24296',
+      'Axe': 'https://minecraft.wiki/images/Diamond_Axe_JE3_BE3.png?99125',
+      'UHC': 'https://minecraft.wiki/images/Golden_Apple_JE2_BE2.png?aa827',
+      'DiaPot': 'https://minecraft.wiki/images/Splash_Potion_of_Healing_JE2_BE2.png?d45f1',
+      'NethPot': 'https://minecraft.wiki/images/Netherite_Sword_JE2_BE2.png?8e866',
+      'Cart': 'https://minecraft.wiki/images/Minecart_with_TNT_%28item%29_JE2_BE2.png?61a90',
+      'Crystal': 'https://minecraft.wiki/images/End_Crystal_%28item%29_JE2_BE2.png?e1ecd'
+    };
 
-                // Se non c'è ancora nessun giocatore testato
-                if (!players || players.length === 0) {
-                    container.innerHTML = '<p class="empty-msg">Nessun giocatore testato finora.<br>I risultati appariranno qui in automatico quando verranno assegnati i tier su Discord!</p>';
-                    return;
-                }
+    let currentCategory = 'Overall';
 
-                // Genera la griglia dei giocatori
-                let html = '<div class="players-grid">';
-                
-                players.forEach(player => {
-                    let tiersHtml = '';
-                    
-                    for (const [gamemode, tier] of Object.entries(player.tiers)) {
-                        tiersHtml += `
-                            <div class="tier-badge">
-                                <span class="gamemode-title">${gamemode}</span>
-                                <span class="tier-value">${tier}</span>
-                            </div>
-                        `;
-                    }
+    let PLAYERS_DATA = [
+      { name: "Marlowww", region: "NA", subtitle: "Combat Grandmaster", tiers: { "Overall": "HT1", "Sword": "HT1", "Cart": "HT1", "Crystal": "HT2" } },
+      { name: "ItzRealMe", region: "NA", subtitle: "Combat Master", tiers: { "Overall": "HT1", "Sword": "HT2", "Cart": "HT1", "Crystal": "HT1" } },
+      { name: "coldified", region: "EU", subtitle: "Combat Master", tiers: { "Overall": "LT1", "Sword": "HT3", "Cart": "HT2", "Crystal": "HT3" } },
+      { name: "Swight", region: "NA", subtitle: "Combat Master", tiers: { "Overall": "HT2", "Sword": "HT4", "Cart": "HT3", "Crystal": "HT4" } },
+      { name: "WeReflexy", region: "EU", subtitle: "Tester Cart", tiers: { "Overall": "LT2", "Sword": "HT5", "Cart": "HT5", "Crystal": "HT5" } }
+    ];
 
-                    html += `
-                        <div class="player-card">
-                            <div class="player-name">${player.display_name}</div>
-                            <div class="discord-tag">@${player.discord_name}</div>
-                            <div class="tiers-list">${tiersHtml}</div>
-                        </div>
-                    `;
-                });
+    function selectCategory(catKey) {
+      currentCategory = catKey;
+      document.querySelectorAll('.cat-tab').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-key') === catKey);
+      });
+      renderView();
+    }
 
-                html += '</div>';
-                container.innerHTML = html;
-
-            } catch (error) {
-                container.innerHTML = '<p class="empty-msg">Nessun giocatore testato finora.<br>I risultati appariranno qui in automatico quando verranno assegnati i tier su Discord!</p>';
-            }
+    async function loadDiscordData() {
+      try {
+        const response = await fetch('data.json?cb=' + Date.now());
+        if(response.ok) {
+          const externalData = await response.json();
+          if(externalData && externalData.length > 0) PLAYERS_DATA = externalData;
         }
+      } catch (e) {
+        console.log("Uso dati di test interni.");
+      }
+      renderView();
+    }
 
-        // Carica la tierlist all'apertura
-        loadTierlist();
+    function getSkinUrl(playerName) {
+      return `https://render.crafty.gg/3d/bust/${playerName}`;
+    }
 
-        // Aggiorna la pagina da sola ogni 15 secondi
-        setInterval(loadTierlist, 15000);
-    </script>
-</body>
-</html>
+    function renderView() {
+      const area = document.getElementById('contentArea');
+      area.innerHTML = '';
+
+      if (currentCategory === 'Overall') {
+        let html = `
+          <div class="table-header">
+            <div>#</div>
+            <div>PLAYER</div>
+            <div>REGION</div>
+            <div class="text-right">TIERS</div>
+          </div>
+          <div class="leaderboard-list">
+        `;
+
+        PLAYERS_DATA.forEach((player, index) => {
+          let rankClass = index === 0 ? 'rank-1' : index === 1 ? 'rank-2' : index === 2 ? 'rank-3' : 'rank-other';
+          let tiersHtml = '';
+          for (const [cat, tierVal] of Object.entries(player.tiers)) {
+            const imgUrl = ITEM_ICONS[cat] || ITEM_ICONS['Overall'];
+            tiersHtml += `
+              <div class="tier-item">
+                <div class="icon-circle"><img src="${imgUrl}" alt="${cat}"></div>
+                <div class="tier-label tier-${tierVal}">${tierVal}</div>
+              </div>
+            `;
+          }
+
+          const skinUrl = getSkinUrl(player.name);
+
+          html += `
+            <div class="player-card">
+              <div class="rank-box ${rankClass}">${index + 1}.</div>
+              <div class="player-info">
+                <img class="player-avatar" src="${skinUrl}" alt="${player.name}" onerror="this.src='https://mc-heads.net/avatar/${player.name}/64'">
+                <div class="player-details">
+                  <div class="player-name">${player.name}</div>
+                  <div class="player-subtitle">${player.subtitle || 'Combat Member'}</div>
+                </div>
+              </div>
+              <div><span class="region-badge region-${player.region || 'EU'}">${player.region || 'EU'}</span></div>
+              <div class="tiers-flex">${tiersHtml}</div>
+            </div>
+          `;
+        });
+        html += `</div>`;
+        area.innerHTML = html;
+
+      } else {
+        let tiersGroups = { 1: [], 2: [], 3: [], 4: [], 5: [] };
+
+        PLAYERS_DATA.forEach(player => {
+          if (player.tiers && player.tiers[currentCategory]) {
+            let tVal = player.tiers[currentCategory].toUpperCase();
+            let match = tVal.match(/[1-5]/);
+            if (match) {
+              let tierNum = parseInt(match[0]);
+              tiersGroups[tierNum].push({ 
+                name: player.name, 
+                region: player.region || 'EU', 
+                tier: tVal 
+              });
+            }
+          }
+        });
+
+        let columnsHtml = `<div class="tier-columns-container">`;
+        
+        for (let i = 1; i <= 5; i++) {
+          let playersInTier = tiersGroups[i];
+          let cardsHtml = '';
+
+          if (playersInTier.length === 0) {
+            cardsHtml = `<div style="font-size:12px; color:#4a5568; text-align:center; padding:15px;">Nessun player</div>`;
+          } else {
+            playersInTier.forEach(p => {
+              const skinUrl = getSkinUrl(p.name);
+              cardsHtml += `
+                <div class="column-player-card">
+                  <div class="column-player-left">
+                    <img class="column-player-avatar" src="${skinUrl}" alt="${p.name}" onerror="this.src='https://mc-heads.net/avatar/${p.name}/38'">
+                    <span class="column-player-name">${p.name}</span>
+                  </div>
+                  <span class="region-badge region-${p.region}">${p.region}</span>
+                </div>
+              `;
+            });
+          }
+
+          columnsHtml += `
+            <div class="tier-column">
+              <div class="tier-column-header t${i}">🏆 Tier ${i}</div>
+              <div class="tier-column-body">${cardsHtml}</div>
+            </div>
+          `;
+        }
+        columnsHtml += `</div>`;
+        area.innerHTML = columnsHtml;
+      }
+    }
+
+    loadDiscordData();
+  </script></body></html>
