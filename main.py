@@ -42,7 +42,6 @@ active_high_testers = {gm: None for gm in GAMEMODES}
 
 cooldowns = {}
 CATEGORY_NAME = "🎯Tierlist"
-HIGH_CATEGORY_NAME = "🥇High Tiers"
 
 TIER_ORDER = [
     "Unranked", "LT5", "HT5", "LT4", "HT4", "LT3", "HT3", "LT2", "HT2", "LT1", "HT1"
@@ -79,7 +78,6 @@ def is_valid_promotion(current_rank: str, target_rank: str) -> (bool, str):
 async def check_queue_timeouts():
     now = datetime.datetime.utcnow()
     for gm in GAMEMODES:
-        # Code normali
         updated = False
         new_queue = []
         for player in queues[gm]:
@@ -92,7 +90,6 @@ async def check_queue_timeouts():
             for guild in bot.guilds:
                 await update_board_message(guild, gm)
 
-        # Code High Tiers
         h_updated = False
         new_h_queue = []
         for player in high_queues[gm]:
@@ -157,7 +154,14 @@ class MinecraftNameModal(discord.ui.Modal):
         }
 
         queues[self.gamemode].append(player_data)
-        await update_board_message(interaction.guild, self.gamemode)
+        guild = interaction.guild
+        
+        # Nasconde la waitlist al player che entra in coda
+        waitlist_channel = discord.utils.get(guild.text_channels, name=f"waitlist-{self.gamemode.lower()}")
+        if waitlist_channel:
+            await waitlist_channel.set_permissions(interaction.user, read_messages=False)
+
+        await update_board_message(guild, self.gamemode)
 
 
 # --- MODALE INSERIMENTO NICK MINECRAFT (HIGH TIERS) ---
@@ -212,10 +216,17 @@ class HighMinecraftNameModal(discord.ui.Modal):
         }
 
         high_queues[self.gamemode].append(player_data)
-        await update_high_board_message(interaction.guild, self.gamemode)
+        guild = interaction.guild
+
+        # Nasconde la high waitlist al player che entra in coda
+        waitlist_channel = discord.utils.get(guild.text_channels, name=f"high-waitlist-{self.gamemode.lower()}")
+        if waitlist_channel:
+            await waitlist_channel.set_permissions(interaction.user, read_messages=False)
+
+        await update_high_board_message(guild, self.gamemode)
 
 
-# --- MODALE RISULTATO TEST STANDARD (LT5, HT5, LT4, HT4, LT3) ---
+# --- MODALE RISULTATO TEST STANDARD ---
 class StandardResultModal(discord.ui.Modal):
     def __init__(self, player_member, mc_name, gamemode, ticket_channel_id, region):
         super().__init__(title=f"Standard Tier Test - {gamemode}")
@@ -419,7 +430,7 @@ class MainPanelButton(discord.ui.Button):
         await interaction.response.send_modal(MinecraftNameModal(self.gamemode))
 
 
-# --- VIEWS PANNELLO PRINCIPALE (HIGH TIERS) ---
+# --- VIEWS PANNELLO PRINCIPALE (HIGH TIERS - BLUCCA SE NON LT3) ---
 class HighMainPanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -434,7 +445,8 @@ class HighMainPanelButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         current_rank = get_current_rank(interaction.user, self.gamemode)
         if current_rank not in HIGH_TIERS:
-            await interaction.response.send_message(f"❌ You must be at least **LT3** in `{self.gamemode}` to use this panel! Your current rank: `{current_rank}`", ephemeral=True)
+            # Se non ha almeno LT3 in quella gamemode, il bottone non fa assolutamente niente (silenzioso o risponde ephemeral invisibile senza aprire modale)
+            await interaction.response.send_message(f"❌ You must be at least **LT3** in `{self.gamemode}` to use this panel!", ephemeral=True)
             return
         await interaction.response.send_modal(HighMinecraftNameModal(self.gamemode))
 
@@ -545,7 +557,7 @@ class HighStaffControlView(discord.ui.View):
             return
 
         await interaction.response.defer(ephemeral=True)
-        category = discord.utils.get(guild.categories, name=HIGH_CATEGORY_NAME) or await guild.create_category(HIGH_CATEGORY_NAME)
+        category = discord.utils.get(guild.categories, name=CATEGORY_NAME) or await guild.create_category(CATEGORY_NAME)
 
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(read_messages=False, send_messages=False),
@@ -578,7 +590,6 @@ class TesterPrivateEvalView(discord.ui.View):
 
         if self.is_high:
             self.add_item(discord.ui.Button(label="🔥 HighTierTest Result", style=discord.ButtonStyle.blurple, custom_id="high_eval_btn"))
-            # Assegniamo il callback direttamente
             for child in self.children:
                 if child.custom_id == "high_eval_btn":
                     child.callback = self.high_test_callback
@@ -729,7 +740,7 @@ async def setup_high_board(interaction: discord.Interaction, gamemode: str):
     await interaction.delete_original_response()
 
     guild = interaction.guild
-    category = discord.utils.get(guild.categories, name=HIGH_CATEGORY_NAME) or await guild.create_category(HIGH_CATEGORY_NAME)
+    category = discord.utils.get(guild.categories, name=CATEGORY_NAME) or await guild.create_category(CATEGORY_NAME)
     
     waitlist_channel = await guild.create_text_channel(name=f"high-waitlist-{gamemode.lower()}", category=category)
     await waitlist_channel.set_permissions(guild.default_role, read_messages=True, send_messages=False)
@@ -744,8 +755,9 @@ async def setup_high_board(interaction: discord.Interaction, gamemode: str):
 @bot.tree.command(name="leave", description="Leave your current queue")
 async def leave_cmd(interaction: discord.Interaction):
     user_id = interaction.user.id
+    guild = interaction.guild
 
-    for channel in interaction.guild.text_channels:
+    for channel in guild.text_channels:
         if (channel.name.startswith("match-") or channel.name.startswith("high-match-")) and str(user_id) in str(channel.overwrites):
             await interaction.response.send_message("❌ You cannot use `/leave` while you are currently in an active match room!", ephemeral=True)
             return
@@ -757,17 +769,23 @@ async def leave_cmd(interaction: discord.Interaction):
             if p['user_id'] == user_id:
                 q.remove(p)
                 found = True
-                await update_board_message(interaction.guild, gm)
+                waitlist_channel = discord.utils.get(guild.text_channels, name=f"waitlist-{gm.lower()}")
+                if waitlist_channel:
+                    await waitlist_channel.set_permissions(interaction.user, overwrite=None)
+                await update_board_message(guild, gm)
 
         hq = high_queues[gm]
         for p in list(hq):
             if p['user_id'] == user_id:
                 hq.remove(p)
                 found = True
-                await update_high_board_message(interaction.guild, gm)
+                waitlist_channel = discord.utils.get(guild.text_channels, name=f"high-waitlist-{gm.lower()}")
+                if waitlist_channel:
+                    await waitlist_channel.set_permissions(interaction.user, overwrite=None)
+                await update_high_board_message(guild, gm)
 
     if found:
-        await interaction.response.send_message("✅ You have been removed from the queue.", ephemeral=True)
+        await interaction.response.send_message("✅ You have been removed from the queue and can now see the waitlist again.", ephemeral=True)
     else:
         await interaction.response.send_message("❌ You are not in any queue.", ephemeral=True)
 
