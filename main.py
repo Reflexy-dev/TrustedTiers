@@ -47,7 +47,7 @@ TIER_ORDER = [
     "Unranked", "LT5", "HT5", "LT4", "HT4", "LT3", "HT3", "LT2", "HT2", "LT1", "HT1"
 ]
 
-HIGH_TIERS = ["LT3", "HT3", "LT2", "HT2", "LT1", "HT1"]
+HIGH_TIERS_QUEUE = ["LT3", "HT3", "LT2", "HT2", "LT1", "HT1"]
 
 def get_current_rank(member: discord.Member, gamemode: str) -> str:
     for role in member.roles:
@@ -83,6 +83,13 @@ async def check_queue_timeouts():
         for player in queues[gm]:
             if (now - player['joined_at']).total_seconds() > 3600:
                 updated = True
+                guild = bot.guilds[0] if bot.guilds else None
+                if guild:
+                    member = guild.get_member(player['user_id'])
+                    if member:
+                        w_chan = discord.utils.get(guild.text_channels, name=f"waitlist-{gm.lower()}")
+                        if w_chan:
+                            await w_chan.set_permissions(member, overwrite=None)
             else:
                 new_queue.append(player)
         if updated:
@@ -95,6 +102,13 @@ async def check_queue_timeouts():
         for player in high_queues[gm]:
             if (now - player['joined_at']).total_seconds() > 3600:
                 h_updated = True
+                guild = bot.guilds[0] if bot.guilds else None
+                if guild:
+                    member = guild.get_member(player['user_id'])
+                    if member:
+                        w_chan = discord.utils.get(guild.text_channels, name=f"high-waitlist-{gm.lower()}")
+                        if w_chan:
+                            await w_chan.set_permissions(member, overwrite=None)
             else:
                 new_h_queue.append(player)
         if h_updated:
@@ -131,6 +145,11 @@ class MinecraftNameModal(discord.ui.Modal):
     async def on_submit(self, interaction: discord.Interaction):
         user_id = interaction.user.id
 
+        if user_id in cooldowns and datetime.datetime.utcnow() < cooldowns[user_id]:
+            remaining = (cooldowns[user_id] - datetime.datetime.utcnow()).days + 1
+            await interaction.response.send_message(f"❌ You are on cooldown! You can join a queue again in about {remaining} day(s).", ephemeral=True)
+            return
+
         if len(queues[self.gamemode]) >= 20:
             await interaction.response.send_message("❌ The queue for this gamemode is full (max 20)!", ephemeral=True)
             return
@@ -156,10 +175,9 @@ class MinecraftNameModal(discord.ui.Modal):
         queues[self.gamemode].append(player_data)
         guild = interaction.guild
         
-        # Nasconde la waitlist al player che entra in coda
         waitlist_channel = discord.utils.get(guild.text_channels, name=f"waitlist-{self.gamemode.lower()}")
         if waitlist_channel:
-            await waitlist_channel.set_permissions(interaction.user, read_messages=False)
+            await waitlist_channel.set_permissions(interaction.user, read_messages=True, send_messages=False)
 
         await update_board_message(guild, self.gamemode)
 
@@ -189,8 +207,13 @@ class HighMinecraftNameModal(discord.ui.Modal):
         user_id = interaction.user.id
         current_rank = get_current_rank(interaction.user, self.gamemode)
 
-        if current_rank not in HIGH_TIERS:
+        if current_rank not in HIGH_TIERS_QUEUE:
             await interaction.response.send_message(f"❌ You must be at least **LT3** in `{self.gamemode}` to join this queue! Your rank: `{current_rank}`", ephemeral=True)
+            return
+
+        if user_id in cooldowns and datetime.datetime.utcnow() < cooldowns[user_id]:
+            remaining = (cooldowns[user_id] - datetime.datetime.utcnow()).days + 1
+            await interaction.response.send_message(f"❌ You are on cooldown! You can join a queue again in about {remaining} day(s).", ephemeral=True)
             return
 
         if len(high_queues[self.gamemode]) >= 20:
@@ -218,10 +241,9 @@ class HighMinecraftNameModal(discord.ui.Modal):
         high_queues[self.gamemode].append(player_data)
         guild = interaction.guild
 
-        # Nasconde la high waitlist al player che entra in coda
         waitlist_channel = discord.utils.get(guild.text_channels, name=f"high-waitlist-{self.gamemode.lower()}")
         if waitlist_channel:
-            await waitlist_channel.set_permissions(interaction.user, read_messages=False)
+            await waitlist_channel.set_permissions(interaction.user, read_messages=True, send_messages=False)
 
         await update_high_board_message(guild, self.gamemode)
 
@@ -244,8 +266,8 @@ class StandardResultModal(discord.ui.Modal):
             required=True
         )
         self.new_rank = discord.ui.TextInput(
-            label="New Rank Earned (LT5, HT5, LT4, HT4, LT3)",
-            placeholder="Ex: LT4",
+            label="New Rank Earned (LT5 to LT3)",
+            placeholder="Ex: LT3",
             required=True
         )
         self.add_item(self.prev_rank)
@@ -264,8 +286,8 @@ class StandardResultModal(discord.ui.Modal):
             await interaction.response.send_message(f"❌ {err_msg}", ephemeral=True)
             return
 
-        if rank_earned in HIGH_TIERS:
-            await interaction.response.send_message(f"❌ The rank `{rank_earned}` belongs to High Tiers! Please use the High Tier queue system.", ephemeral=True)
+        if rank_earned not in TIER_ORDER or TIER_ORDER.index(rank_earned) > TIER_ORDER.index("LT3"):
+            await interaction.response.send_message(f"❌ The rank `{rank_earned}` belongs to High Tiers! Please use the High Tier system.", ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=True)
@@ -290,6 +312,10 @@ class StandardResultModal(discord.ui.Modal):
 
         queues[self.gamemode] = [p for p in queues[self.gamemode] if p['user_id'] != self.player_member.id]
         cooldowns[self.player_member.id] = datetime.datetime.utcnow() + datetime.timedelta(days=7)
+
+        w_chan = discord.utils.get(guild.text_channels, name=f"waitlist-{self.gamemode.lower()}")
+        if w_chan:
+            await w_chan.set_permissions(self.player_member, overwrite=None)
 
         for role in self.player_member.roles:
             if self.gamemode in role.name:
@@ -392,6 +418,10 @@ class HighTierResultModal(discord.ui.Modal):
         high_queues[self.gamemode] = [p for p in high_queues[self.gamemode] if p['user_id'] != self.player_member.id]
         cooldowns[self.player_member.id] = datetime.datetime.utcnow() + datetime.timedelta(days=7)
 
+        w_chan = discord.utils.get(guild.text_channels, name=f"high-waitlist-{self.gamemode.lower()}")
+        if w_chan:
+            await w_chan.set_permissions(self.player_member, overwrite=None)
+
         if t_idx > c_idx:
             for role in self.player_member.roles:
                 if self.gamemode in role.name:
@@ -430,9 +460,9 @@ class MainPanelButton(discord.ui.Button):
         await interaction.response.send_modal(MinecraftNameModal(self.gamemode))
 
 
-# --- VIEWS PANNELLO PRINCIPALE (HIGH TIERS - BLUCCA SE NON LT3) ---
+# --- VIEWS PANNELLO PRINCIPALE (HIGH TIERS) ---
 class HighMainPanelView(discord.ui.View):
-    def __init__(self):
+    def __init__(self, bot_instance):
         super().__init__(timeout=None)
         for gm, emoji in GAMEMODE_EMOJIS.items():
             self.add_item(HighMainPanelButton(gm, emoji))
@@ -444,8 +474,7 @@ class HighMainPanelButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         current_rank = get_current_rank(interaction.user, self.gamemode)
-        if current_rank not in HIGH_TIERS:
-            # Se non ha almeno LT3 in quella gamemode, il bottone non fa assolutamente niente (silenzioso o risponde ephemeral invisibile senza aprire modale)
+        if current_rank not in HIGH_TIERS_QUEUE:
             await interaction.response.send_message(f"❌ You must be at least **LT3** in `{self.gamemode}` to use this panel!", ephemeral=True)
             return
         await interaction.response.send_modal(HighMinecraftNameModal(self.gamemode))
@@ -470,12 +499,6 @@ class StaffControlView(discord.ui.View):
     @discord.ui.button(label="Join as Tester", style=discord.ButtonStyle.blurple)
     async def join_tester_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         active_testers[self.gamemode] = interaction.user.id
-        role_name = f"Tester {self.gamemode}"
-        role = discord.utils.get(interaction.guild.roles, name=role_name)
-        if not role:
-            role = await interaction.guild.create_role(name=role_name, color=discord.Color.blue())
-        await interaction.user.add_roles(role)
-        
         await interaction.response.edit_message(embed=generate_queue_embed(self.gamemode), view=self)
 
     @discord.ui.button(label="Next Player", style=discord.ButtonStyle.green)
@@ -523,22 +546,25 @@ class HighStaffControlView(discord.ui.View):
         self.next_player_btn.custom_id = f"high_next_p_{gamemode}"
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        tester_role_name = f"Tester {self.gamemode}"
-        has_role = any(role.name == tester_role_name for role in interaction.user.roles)
-        if not (has_role or interaction.user.guild_permissions.administrator):
-            await interaction.response.send_message(f"❌ You must be a **Tester {self.gamemode}** to use these controls.", ephemeral=True)
+        tester_role_name = f"Tester {gamemode}"
+        has_tester_role = any(role.name == tester_role_name for role in interaction.user.roles)
+        current_rank = get_current_rank(interaction.user, self.gamemode)
+        has_lt3 = current_rank in HIGH_TIERS_QUEUE
+
+        if interaction.user.guild_permissions.administrator:
+            return True
+
+        if not has_tester_role or not has_lt3:
+            await interaction.response.send_message(
+                f"❌ To join as a High Tester, you must have the **Tester {self.gamemode}** role AND be at least **LT3 {self.gamemode}**! (Your rank: `{current_rank}`)",
+                ephemeral=True
+            )
             return False
         return True
 
     @discord.ui.button(label="Join as Tester", style=discord.ButtonStyle.blurple)
     async def join_tester_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         active_high_testers[self.gamemode] = interaction.user.id
-        role_name = f"Tester {self.gamemode}"
-        role = discord.utils.get(interaction.guild.roles, name=role_name)
-        if not role:
-            role = await interaction.guild.create_role(name=role_name, color=discord.Color.blue())
-        await interaction.user.add_roles(role)
-        
         await interaction.response.edit_message(embed=generate_high_queue_embed(self.gamemode), view=self)
 
     @discord.ui.button(label="Next Player", style=discord.ButtonStyle.green)
@@ -695,7 +721,7 @@ async def setup_high_panel(interaction: discord.Interaction):
         description="Click a gamemode to join the High queue (Must be LT3+ in that specific gamemode)!",
         color=0xf1c40f
     )
-    await interaction.channel.send(embed=embed, view=HighMainPanelView())
+    await interaction.channel.send(embed=embed, view=HighMainPanelView(bot))
 
 
 @bot.tree.command(name="setup_board", description="Creates the waitlist channel for a gamemode")
@@ -716,11 +742,9 @@ async def setup_board(interaction: discord.Interaction, gamemode: str):
     category = discord.utils.get(guild.categories, name=CATEGORY_NAME) or await guild.create_category(CATEGORY_NAME)
     
     waitlist_channel = await guild.create_text_channel(name=f"waitlist-{gamemode.lower()}", category=category)
-    await waitlist_channel.set_permissions(guild.default_role, read_messages=True, send_messages=False)
-    
-    tester_role = discord.utils.get(guild.roles, name=f"Tester {gamemode}")
-    if tester_role:
-        await waitlist_channel.set_permissions(tester_role, read_messages=True, send_messages=False)
+    # RIMOSSO IL PERMESSO GLOBALE AL RUOLO TESTER: ora il canale è invisibile a tutti (incluso il tester), 
+    # e viene sbloccato singolarmente solo se entra in coda o se prende il controllo.
+    await waitlist_channel.set_permissions(guild.default_role, read_messages=False, send_messages=False)
 
     await waitlist_channel.send(embed=generate_queue_embed(gamemode), view=StaffControlView(gamemode))
 
@@ -743,11 +767,8 @@ async def setup_high_board(interaction: discord.Interaction, gamemode: str):
     category = discord.utils.get(guild.categories, name=CATEGORY_NAME) or await guild.create_category(CATEGORY_NAME)
     
     waitlist_channel = await guild.create_text_channel(name=f"high-waitlist-{gamemode.lower()}", category=category)
-    await waitlist_channel.set_permissions(guild.default_role, read_messages=True, send_messages=False)
-    
-    tester_role = discord.utils.get(guild.roles, name=f"Tester {gamemode}")
-    if tester_role:
-        await waitlist_channel.set_permissions(tester_role, read_messages=True, send_messages=False)
+    # Stessa cosa per le high waitlist: nascoste a prescindere dal ruolo tester
+    await waitlist_channel.set_permissions(guild.default_role, read_messages=False, send_messages=False)
 
     await waitlist_channel.send(embed=generate_high_queue_embed(gamemode), view=HighStaffControlView(gamemode))
 
@@ -785,7 +806,7 @@ async def leave_cmd(interaction: discord.Interaction):
                 await update_high_board_message(guild, gm)
 
     if found:
-        await interaction.response.send_message("✅ You have been removed from the queue and can now see the waitlist again.", ephemeral=True)
+        await interaction.response.send_message("✅ You have been removed from the queue and can no longer see the waitlist channel.", ephemeral=True)
     else:
         await interaction.response.send_message("❌ You are not in any queue.", ephemeral=True)
 
@@ -874,7 +895,7 @@ async def on_ready():
         bot.add_view(StaffControlView(gm))
         bot.add_view(HighStaffControlView(gm))
     bot.add_view(MainPanelView())
-    bot.add_view(HighMainPanelView())
+    bot.add_view(HighMainPanelView(bot))
     if not check_queue_timeouts.is_running():
         check_queue_timeouts.start()
     await bot.tree.sync()
