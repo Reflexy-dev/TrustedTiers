@@ -3,6 +3,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 import datetime
 import os
+import json
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 
@@ -56,7 +57,7 @@ def get_current_rank(member: discord.Member, gamemode: str) -> str:
                 return t
     return "Unranked"
 
-def is_valid_promotion(current_rank: str, target_rank: str) -> (bool, str):
+def is_valid_promotion(current_rank: str, target_rank: str):
     c_rank = current_rank.upper().strip()
     t_rank = target_rank.upper().strip()
 
@@ -72,6 +73,33 @@ def is_valid_promotion(current_rank: str, target_rank: str) -> (bool, str):
 
     return True, ""
 
+# --- FUNZIONE AGGIORNAMENTO FILE JSON LOCALE (PRENDE L'ULTIMO TIER DATO) ---
+def update_json_file(guild: discord.Guild):
+    players_data = []
+    
+    for member in guild.members:
+        temp_tiers = {}
+        # Scorriamo i ruoli del membro nell'ordine in cui Discord li restituisce (dal basso verso l'alto o viceversa, 
+        # scorrendo la lista salviamo l'ultimo trovato in modo che l'ultimo assegnato sovrascriva i precedenti)
+        for role in member.roles:
+            for gm in GAMEMODES:
+                for t in TIER_ORDER:
+                    if role.name == f"{t} {gm}":
+                        temp_tiers[gm] = t  # Sovrascrive sempre con l'ultimo ruolo trovato/assegnato
+                                
+        if temp_tiers:
+            players_data.append({
+                "discord_id": str(member.id),
+                "discord_name": member.name,
+                "display_name": member.display_name,
+                "tiers": temp_tiers
+            })
+            
+    try:
+        with open("data.json", "w", encoding="utf-8") as f:
+            json.dump(players_data, f, indent=4, ensure_ascii=False)
+    except Exception as e:
+        print(f"Errore salvataggio data.json: {e}")
 
 # --- TASK BACKGROUND TIMEOUT CODA ---
 @tasks.loop(minutes=1)
@@ -119,7 +147,6 @@ async def check_queue_timeouts():
 @check_queue_timeouts.before_loop
 async def before_timeouts():
     await bot.wait_until_ready()
-
 
 # --- MODALE INSERIMENTO NICK MINECRAFT (NORMALE) ---
 class MinecraftNameModal(discord.ui.Modal):
@@ -180,7 +207,6 @@ class MinecraftNameModal(discord.ui.Modal):
             await waitlist_channel.set_permissions(interaction.user, read_messages=True, send_messages=False)
 
         await update_board_message(guild, self.gamemode)
-
 
 # --- MODALE INSERIMENTO NICK MINECRAFT (HIGH TIERS) ---
 class HighMinecraftNameModal(discord.ui.Modal):
@@ -246,7 +272,6 @@ class HighMinecraftNameModal(discord.ui.Modal):
             await waitlist_channel.set_permissions(interaction.user, read_messages=True, send_messages=False)
 
         await update_high_board_message(guild, self.gamemode)
-
 
 # --- MODALE RISULTATO TEST STANDARD ---
 class StandardResultModal(discord.ui.Modal):
@@ -332,11 +357,13 @@ class StandardResultModal(discord.ui.Modal):
 
         await update_board_message(guild, self.gamemode)
         
+        # AGGIORNA AUTOMATICAMENTE IL FILE JSON PER IL SITO (ULTIMO TIER DATO)
+        update_json_file(guild)
+        
         match_channel = guild.get_channel(self.ticket_channel_id)
         if match_channel:
             try: await match_channel.delete()
             except Exception: pass
-
 
 # --- MODALE RISULTATO HIGH TIER TEST ---
 class HighTierResultModal(discord.ui.Modal):
@@ -438,11 +465,13 @@ class HighTierResultModal(discord.ui.Modal):
 
         await update_high_board_message(guild, self.gamemode)
         
+        # AGGIORNA AUTOMATICAMENTE IL FILE JSON PER IL SITO (ULTIMO TIER DATO)
+        update_json_file(guild)
+        
         match_channel = guild.get_channel(self.ticket_channel_id)
         if match_channel:
             try: await match_channel.delete()
             except Exception: pass
-
 
 # --- VIEWS PANNELLO PRINCIPALE (NORMALE) ---
 class MainPanelView(discord.ui.View):
@@ -458,7 +487,6 @@ class MainPanelButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.send_modal(MinecraftNameModal(self.gamemode))
-
 
 # --- VIEWS PANNELLO PRINCIPALE (HIGH TIERS) ---
 class HighMainPanelView(discord.ui.View):
@@ -478,7 +506,6 @@ class HighMainPanelButton(discord.ui.Button):
             await interaction.response.send_message(f"❌ You must be at least **LT3** in `{self.gamemode}` to use this panel!", ephemeral=True)
             return
         await interaction.response.send_modal(HighMinecraftNameModal(self.gamemode))
-
 
 # --- VIEW CONTROLLO WAITLIST NORMALE ---
 class StaffControlView(discord.ui.View):
@@ -536,7 +563,6 @@ class StaffControlView(discord.ui.View):
         await match_room.send(content=f"⚡ **Match Room:** {player_member.mention} vs {interaction.user.mention}\n*The match has started! Use the buttons below to assign the result.*", view=eval_view)
         await interaction.message.edit(embed=generate_queue_embed(self.gamemode), view=self)
 
-
 # --- VIEW CONTROLLO WAITLIST HIGH TIERS ---
 class HighStaffControlView(discord.ui.View):
     def __init__(self, gamemode: str):
@@ -546,7 +572,7 @@ class HighStaffControlView(discord.ui.View):
         self.next_player_btn.custom_id = f"high_next_p_{gamemode}"
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        tester_role_name = f"Tester {gamemode}"
+        tester_role_name = f"Tester {self.gamemode}"
         has_tester_role = any(role.name == tester_role_name for role in interaction.user.roles)
         current_rank = get_current_rank(interaction.user, self.gamemode)
         has_lt3 = current_rank in HIGH_TIERS_QUEUE
@@ -602,7 +628,6 @@ class HighStaffControlView(discord.ui.View):
         await match_room.send(content=f"⚡ **High Match Room:** {player_member.mention} vs {interaction.user.mention}\n*The high tier match has started! Use the button below to assign the result.*", view=eval_view)
         await interaction.message.edit(embed=generate_high_queue_embed(self.gamemode), view=self)
 
-
 # --- PULSANTI NELLA STANZA MATCH ---
 class TesterPrivateEvalView(discord.ui.View):
     def __init__(self, player_member, mc_name, gamemode, channel_id, region, is_high=False):
@@ -630,7 +655,6 @@ class TesterPrivateEvalView(discord.ui.View):
 
     async def high_test_callback(self, interaction: discord.Interaction):
         await interaction.response.send_modal(HighTierResultModal(self.player_member, self.mc_name, self.gamemode, self.channel_id, self.region))
-
 
 # --- GENERAZIONE EMBED WAITLIST ---
 def generate_queue_embed(gamemode: str):
@@ -670,7 +694,6 @@ def generate_high_queue_embed(gamemode: str):
     )
     return embed
 
-
 async def update_board_message(guild, gamemode):
     waitlist_channel = discord.utils.get(guild.text_channels, name=f"waitlist-{gamemode.lower()}")
     if waitlist_channel:
@@ -687,9 +710,7 @@ async def update_high_board_message(guild, gamemode):
                 await message.edit(embed=generate_high_queue_embed(gamemode), view=HighStaffControlView(gamemode))
                 break
 
-
 # --- COMANDI SLASH ---
-
 @bot.tree.command(name="setup_panel", description="Creates the gamemode selection panel")
 async def setup_panel(interaction: discord.Interaction):
     if not interaction.user.guild_permissions.administrator:
@@ -706,7 +727,6 @@ async def setup_panel(interaction: discord.Interaction):
     )
     await interaction.channel.send(embed=embed, view=MainPanelView())
 
-
 @bot.tree.command(name="setup_high_panel", description="Creates the High Tiers gamemode selection panel (LT3+ only)")
 async def setup_high_panel(interaction: discord.Interaction):
     if not interaction.user.guild_permissions.administrator:
@@ -722,7 +742,6 @@ async def setup_high_panel(interaction: discord.Interaction):
         color=0xf1c40f
     )
     await interaction.channel.send(embed=embed, view=HighMainPanelView(bot))
-
 
 @bot.tree.command(name="setup_board", description="Creates the waitlist channel for a gamemode")
 @app_commands.describe(gamemode="Name of the gamemode")
@@ -742,12 +761,8 @@ async def setup_board(interaction: discord.Interaction, gamemode: str):
     category = discord.utils.get(guild.categories, name=CATEGORY_NAME) or await guild.create_category(CATEGORY_NAME)
     
     waitlist_channel = await guild.create_text_channel(name=f"waitlist-{gamemode.lower()}", category=category)
-    # RIMOSSO IL PERMESSO GLOBALE AL RUOLO TESTER: ora il canale è invisibile a tutti (incluso il tester), 
-    # e viene sbloccato singolarmente solo se entra in coda o se prende il controllo.
     await waitlist_channel.set_permissions(guild.default_role, read_messages=False, send_messages=False)
-
     await waitlist_channel.send(embed=generate_queue_embed(gamemode), view=StaffControlView(gamemode))
-
 
 @bot.tree.command(name="setup_high_board", description="Creates the High waitlist channel for a gamemode")
 @app_commands.describe(gamemode="Name of the gamemode")
@@ -767,11 +782,8 @@ async def setup_high_board(interaction: discord.Interaction, gamemode: str):
     category = discord.utils.get(guild.categories, name=CATEGORY_NAME) or await guild.create_category(CATEGORY_NAME)
     
     waitlist_channel = await guild.create_text_channel(name=f"high-waitlist-{gamemode.lower()}", category=category)
-    # Stessa cosa per le high waitlist: nascoste a prescindere dal ruolo tester
     await waitlist_channel.set_permissions(guild.default_role, read_messages=False, send_messages=False)
-
     await waitlist_channel.send(embed=generate_high_queue_embed(gamemode), view=HighStaffControlView(gamemode))
-
 
 @bot.tree.command(name="leave", description="Leave your current queue")
 async def leave_cmd(interaction: discord.Interaction):
@@ -810,7 +822,6 @@ async def leave_cmd(interaction: discord.Interaction):
     else:
         await interaction.response.send_message("❌ You are not in any queue.", ephemeral=True)
 
-
 @bot.tree.command(name="leave_tester", description="Abandon your active tester session for a gamemode")
 @app_commands.describe(gamemode="The gamemode")
 async def leave_tester_cmd(interaction: discord.Interaction, gamemode: str):
@@ -837,7 +848,6 @@ async def leave_tester_cmd(interaction: discord.Interaction, gamemode: str):
 
     await interaction.response.send_message(f"✅ You are no longer the active tester for **{gamemode}**.", ephemeral=True)
 
-
 @bot.tree.command(name="retier", description="Retire a player's Tier rank")
 @app_commands.describe(member="The player", gamemode="The gamemode", rank="Current rank to retire")
 async def retier_cmd(interaction: discord.Interaction, member: discord.Member, gamemode: str, rank: str):
@@ -860,8 +870,11 @@ async def retier_cmd(interaction: discord.Interaction, member: discord.Member, g
         retired_role = await guild.create_role(name=retired_role_name, color=discord.Color.light_gray(), mentionable=True)
 
     await member.add_roles(retired_role)
+    
+    # Aggiorna il JSON sul sito
+    update_json_file(guild)
+    
     await interaction.response.send_message(f"✅ **{member.display_name}**'s role updated to `{retired_role_name}`.", ephemeral=True)
-
 
 @bot.tree.command(name="unretier", description="Restore a player's retired Tier rank")
 @app_commands.describe(member="The player", gamemode="The gamemode", rank="Rank to restore")
@@ -885,8 +898,11 @@ async def unretier_cmd(interaction: discord.Interaction, member: discord.Member,
         active_role = await guild.create_role(name=active_role_name, mentionable=True, color=discord.Color.default())
 
     await member.add_roles(active_role)
+    
+    # Aggiorna il JSON sul sito
+    update_json_file(guild)
+    
     await interaction.response.send_message(f"✅ **{member.display_name}**'s role restored to `{active_role_name}`.", ephemeral=True)
-
 
 @bot.event
 async def on_ready():
