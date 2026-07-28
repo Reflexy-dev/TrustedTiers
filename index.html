@@ -1,4 +1,6 @@
-<!DOCTYPE html><html lang="it"><head>
+<!DOCTYPE html>
+<html lang="it">
+<head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>TRUSTEDTIER - MCTiers Style</title>
@@ -114,7 +116,6 @@
       overflow: hidden;
     }
 
-    /* Effetto sbrilluccichio / riflesso animato per il podio */
     .rank-box::after {
       content: '';
       position: absolute;
@@ -138,7 +139,6 @@
       100% { transform: rotate(30deg) translate(100%, 100%); }
     }
     
-    /* Colori podio corretti e distinti con glow pulsante */
     .rank-1 { 
       background: linear-gradient(135deg, #ffd000, #cca100); 
       color: #121826; 
@@ -183,7 +183,6 @@
       margin-left: -12px;
     }
 
-    /* Skin altissima nitidezza senza sfocature */
     .player-avatar { 
       width: 64px; 
       height: 64px; 
@@ -281,16 +280,8 @@
       color: #f59e0b; 
       border-bottom-color: rgba(245, 158, 11, 0.3); 
     }
-    .tier-column-header.t4 { 
-      background: #161c29; 
-      color: #94a3b8; 
-      border-bottom-color: #232d42; 
-    }
-    .tier-column-header.t5 { 
-      background: #161c29; 
-      color: #94a3b8; 
-      border-bottom-color: #232d42; 
-    }
+    .tier-column-header.t4 { background: #161c29; color: #94a3b8; border-bottom-color: #232d42; }
+    .tier-column-header.t5 { background: #161c29; color: #94a3b8; border-bottom-color: #232d42; }
 
     .tier-column-body {
       padding: 10px;
@@ -311,7 +302,6 @@
     }
     .column-player-left { display: flex; align-items: center; gap: 10px; }
     
-    /* Skin nitide anche nelle colonne */
     .column-player-avatar { 
       width: 38px; 
       height: 38px; 
@@ -320,18 +310,9 @@
       image-rendering: crisp-edges;
     }
     .column-player-name { font-size: 14px; font-weight: 800; color: #fff; }
-
-    .empty-msg {
-      text-align: center;
-      padding: 50px;
-      color: #4a5568;
-      font-size: 15px;
-      font-weight: 700;
-      background: #121826;
-      border-radius: 10px;
-      border: 1px dashed #1a2333;
-    }
-  </style></head><body>
+  </style>
+</head>
+<body>
 
   <header>
     <div class="logo-text">TRUSTEDTIER</div>
@@ -366,6 +347,7 @@
 
     let currentCategory = 'Overall';
 
+    // Fallback di sicurezza nel caso data.json non risponda
     let PLAYERS_DATA = [
       { name: "Marlowww", region: "NA", subtitle: "Combat Grandmaster", tiers: { "Overall": "HT1", "Sword": "HT1", "Cart": "HT1", "Crystal": "HT2" } },
       { name: "ItzRealMe", region: "NA", subtitle: "Combat Master", tiers: { "Overall": "HT1", "Sword": "HT2", "Cart": "HT1", "Crystal": "HT1" } },
@@ -387,10 +369,17 @@
         const response = await fetch('data.json?cb=' + Date.now());
         if(response.ok) {
           const externalData = await response.json();
-          if(externalData && externalData.length > 0) PLAYERS_DATA = externalData;
+          if(externalData && externalData.length > 0) {
+            PLAYERS_DATA = externalData;
+            console.log("✅ Dati del bot caricati con successo:", PLAYERS_DATA);
+          } else {
+            console.warn("⚠️ Il file data.json è vuoto, utilizzo i dati di fallback.");
+          }
+        } else {
+          console.error("❌ Errore HTTP nel fetch di data.json:", response.status);
         }
       } catch (e) {
-        console.log("Uso dati di test interni.");
+        console.error("❌ Impossibile caricare data.json (file non trovato o errore di rete):", e);
       }
       renderView();
     }
@@ -417,7 +406,7 @@
         PLAYERS_DATA.forEach((player, index) => {
           let rankClass = index === 0 ? 'rank-1' : index === 1 ? 'rank-2' : index === 2 ? 'rank-3' : 'rank-other';
           let tiersHtml = '';
-          for (const [cat, tierVal] of Object.entries(player.tiers)) {
+          for (const [cat, tierVal] of Object.entries(player.tiers || {})) {
             const imgUrl = ITEM_ICONS[cat] || ITEM_ICONS['Overall'];
             tiersHtml += `
               <div class="tier-item">
@@ -501,4 +490,6 @@
     }
 
     loadDiscordData();
-  </script></body></html>
+  </script>
+</body>
+</html>
