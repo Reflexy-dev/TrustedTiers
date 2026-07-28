@@ -4,6 +4,8 @@ from discord.ext import commands, tasks
 import datetime
 import os
 import json
+import base64
+import requests
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 
@@ -73,33 +75,80 @@ def is_valid_promotion(current_rank: str, target_rank: str):
 
     return True, ""
 
-# --- FUNZIONE AGGIORNAMENTO FILE JSON LOCALE (PRENDE L'ULTIMO TIER DATO) ---
+# --- FUNZIONE AGGIORNAMENTO FILE JSON SU GITHUB ---
 def update_json_file(guild: discord.Guild):
     players_data = []
     
     for member in guild.members:
         temp_tiers = {}
-        # Scorriamo i ruoli del membro nell'ordine in cui Discord li restituisce (dal basso verso l'alto o viceversa, 
-        # scorrendo la lista salviamo l'ultimo trovato in modo che l'ultimo assegnato sovrascriva i precedenti)
         for role in member.roles:
             for gm in GAMEMODES:
                 for t in TIER_ORDER:
                     if role.name == f"{t} {gm}":
-                        temp_tiers[gm] = t  # Sovrascrive sempre con l'ultimo ruolo trovato/assegnato
+                        temp_tiers[gm] = t  
                                 
         if temp_tiers:
+            player_region = "EU"
+            for gm_check in GAMEMODES:
+                for p in queues.get(gm_check, []):
+                    if p['user_id'] == member.id:
+                        player_region = p.get('region', 'EU')
+                for p in high_queues.get(gm_check, []):
+                    if p['user_id'] == member.id:
+                        player_region = p.get('region', 'EU')
+
             players_data.append({
+                "name": member.display_name,
+                "region": player_region,
+                "subtitle": "Combat Member",
                 "discord_id": str(member.id),
-                "discord_name": member.name,
-                "display_name": member.display_name,
                 "tiers": temp_tiers
             })
             
+    GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+    REPO_NAME = os.getenv("GITHUB_REPO")
+    FILE_PATH = "data.json"
+    
     try:
         with open("data.json", "w", encoding="utf-8") as f:
             json.dump(players_data, f, indent=4, ensure_ascii=False)
     except Exception as e:
-        print(f"Errore salvataggio data.json: {e}")
+        print(f"Errore salvataggio locale data.json: {e}")
+
+    if GITHUB_TOKEN and REPO_NAME:
+        try:
+            headers = {
+                "Authorization": f"Bearer {GITHUB_TOKEN}",
+                "Accept": "application/vnd.github+json"
+            }
+            api_url = f"https://api.github.com/repos/{REPO_NAME}/contents/{FILE_PATH}"
+            
+            sha = None
+            r_get = requests.get(api_url, headers=headers)
+            if r_get.status_code == 200:
+                sha = r_get.json().get("sha")
+                
+            json_string = json.dumps(players_data, indent=4, ensure_ascii=False)
+            content_encoded = base64.b64encode(json_string.encode("utf-8")).decode("utf-8")
+            
+            payload = {
+                "message": "Aggiornamento automatico tier da Discord",
+                "content": content_encoded,
+                "branch": "main"
+            }
+            if sha:
+                payload["sha"] = sha
+                
+            r_put = requests.put(api_url, headers=headers, json=payload)
+            if r_put.status_code in [200, 201]:
+                print("✅ File data.json aggiornato con successo su GitHub!")
+            else:
+                print(f"❌ Errore GitHub API: {r_put.status_code} - {r_put.text}")
+                
+        except Exception as e:
+            print(f"Errore durante il push su GitHub: {e}")
+    else:
+        print("⚠️ GITHUB_TOKEN o GITHUB_REPO non impostati nelle variabili d'ambiente di Render.")
 
 # --- TASK BACKGROUND TIMEOUT CODA ---
 @tasks.loop(minutes=1)
