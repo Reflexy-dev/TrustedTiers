@@ -310,6 +310,14 @@
       image-rendering: crisp-edges;
     }
     .column-player-name { font-size: 14px; font-weight: 800; color: #fff; }
+
+    .empty-message {
+      text-align: center;
+      padding: 40px;
+      color: #4a5568;
+      font-size: 14px;
+      font-weight: 700;
+    }
   </style>
 </head>
 <body>
@@ -347,14 +355,8 @@
 
     let currentCategory = 'Overall';
 
-    // Fallback di sicurezza nel caso data.json non risponda
-    let PLAYERS_DATA = [
-      { name: "Marlowww", region: "NA", subtitle: "Combat Grandmaster", tiers: { "Overall": "HT1", "Sword": "HT1", "Cart": "HT1", "Crystal": "HT2" } },
-      { name: "ItzRealMe", region: "NA", subtitle: "Combat Master", tiers: { "Overall": "HT1", "Sword": "HT2", "Cart": "HT1", "Crystal": "HT1" } },
-      { name: "coldified", region: "EU", subtitle: "Combat Master", tiers: { "Overall": "LT1", "Sword": "HT3", "Cart": "HT2", "Crystal": "HT3" } },
-      { name: "Swight", region: "NA", subtitle: "Combat Master", tiers: { "Overall": "HT2", "Sword": "HT4", "Cart": "HT3", "Crystal": "HT4" } },
-      { name: "WeReflexy", region: "EU", subtitle: "Tester Cart", tiers: { "Overall": "LT2", "Sword": "HT5", "Cart": "HT5", "Crystal": "HT5" } }
-    ];
+    // Lista vuota: nessun player di prova iniziale
+    let PLAYERS_DATA = [];
 
     function selectCategory(catKey) {
       currentCategory = catKey;
@@ -369,17 +371,13 @@
         const response = await fetch('data.json?cb=' + Date.now());
         if(response.ok) {
           const externalData = await response.json();
-          if(externalData && externalData.length > 0) {
+          if(externalData && Array.isArray(externalData)) {
             PLAYERS_DATA = externalData;
             console.log("✅ Dati del bot caricati con successo:", PLAYERS_DATA);
-          } else {
-            console.warn("⚠️ Il file data.json è vuoto, utilizzo i dati di fallback.");
           }
-        } else {
-          console.error("❌ Errore HTTP nel fetch di data.json:", response.status);
         }
       } catch (e) {
-        console.error("❌ Impossibile caricare data.json (file non trovato o errore di rete):", e);
+        console.error("❌ Impossibile caricare data.json:", e);
       }
       renderView();
     }
@@ -391,6 +389,11 @@
     function renderView() {
       const area = document.getElementById('contentArea');
       area.innerHTML = '';
+
+      if (PLAYERS_DATA.length === 0) {
+        area.innerHTML = `<div class="empty-message">Nessun giocatore registrato. Assegna i tier su Discord per farli apparire qui!</div>`;
+        return;
+      }
 
       if (currentCategory === 'Overall') {
         let html = `
