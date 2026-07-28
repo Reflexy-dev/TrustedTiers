@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tierlist Ufficiale</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background-color: #1e1f22;
+            color: #ffffff;
+            padding: 30px 15px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            color: #5865F2;
+            margin-bottom: 30px;
+            font-size: 2.2rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .empty-msg {
+            text-align: center;
+            color: #949ba4;
+            font-size: 1.1rem;
+            margin-top: 40px;
+            background: #2b2d31;
+            padding: 30px;
+            border-radius: 8px;
+        }
+
+        .players-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 20px;
+        }
+
+        .player-card {
+            background-color: #2b2d31;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+            border: 1px solid #383a40;
+            transition: transform 0.2s;
+        }
+
+        .player-card:hover {
+            transform: translateY(-3px);
+        }
+
+        .player-name {
+            font-size: 1.3rem;
+            font-weight: bold;
+            color: #f2f3f5;
+            margin-bottom: 5px;
+        }
+
+        .discord-tag {
+            font-size: 0.85rem;
+            color: #949ba4;
+            margin-bottom: 15px;
+        }
+
+        .tiers-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .tier-badge {
+            background-color: #313338;
+            padding: 8px 12px;
+            border-radius: 6px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.95rem;
+        }
+
+        .gamemode-title {
+            color: #b5bac1;
+        }
+
+        .tier-value {
+            color: #f1c40f;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>🏆 Tierlist Giocatori</h1>
+        <div id="tierlist-container">
+            <p class="empty-msg">Caricamento in corso...</p>
+        </div>
+    </div>
+
+    <script>
+        async function loadTierlist() {
+            const container = document.getElementById('tierlist-container');
+            
+            try {
+                // Legge il file data.json aggiornato dal bot
+                const response = await fetch('./data.json?cache_bust=' + new Date().getTime());
+                
+                if (!response.ok) {
+                    throw new Error('File data.json non ancora disponibile.');
+                }
+
+                const players = await response.json();
+
+                // Se non c'è ancora nessun giocatore testato
+                if (!players || players.length === 0) {
+                    container.innerHTML = '<p class="empty-msg">Nessun giocatore testato finora.<br>I risultati appariranno qui in automatico quando verranno assegnati i tier su Discord!</p>';
+                    return;
+                }
+
+                // Genera la griglia dei giocatori
+                let html = '<div class="players-grid">';
+                
+                players.forEach(player => {
+                    let tiersHtml = '';
+                    
+                    for (const [gamemode, tier] of Object.entries(player.tiers)) {
+                        tiersHtml += `
+                            <div class="tier-badge">
+                                <span class="gamemode-title">${gamemode}</span>
+                                <span class="tier-value">${tier}</span>
+                            </div>
+                        `;
+                    }
+
+                    html += `
+                        <div class="player-card">
+                            <div class="player-name">${player.display_name}</div>
+                            <div class="discord-tag">@${player.discord_name}</div>
+                            <div class="tiers-list">${tiersHtml}</div>
+                        </div>
+                    `;
+                });
+
+                html += '</div>';
+                container.innerHTML = html;
+
+            } catch (error) {
+                container.innerHTML = '<p class="empty-msg">Nessun giocatore testato finora.<br>I risultati appariranno qui in automatico quando verranno assegnati i tier su Discord!</p>';
+            }
+        }
+
+        // Carica la tierlist all'apertura
+        loadTierlist();
+
+        // Aggiorna la pagina da sola ogni 15 secondi
+        setInterval(loadTierlist, 15000);
+    </script>
+</body>
+</html>
