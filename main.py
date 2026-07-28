@@ -899,10 +899,26 @@ async def unretier_cmd(interaction: discord.Interaction, member: discord.Member,
 
     await member.add_roles(active_role)
     
-    # Aggiorna il JSON sul sito
+# Aggiorna il JSON sul sito
     update_json_file(guild)
     
     await interaction.response.send_message(f"✅ **{member.display_name}**'s role restored to `{active_role_name}`.", ephemeral=True)
+
+# --- COMANDO PER SCARICARE IL JSON AGGIORNATO DAL BOT ---
+@bot.tree.command(name="getdata", description="Scarica il file data.json aggiornato per il sito")
+@app_commands.checks.has_permissions(administrator=True)
+async def getdata(interaction: discord.Interaction):
+    guild = interaction.guild
+    update_json_file(guild)
+    
+    if os.path.exists("data.json"):
+        await interaction.response.send_message(
+            "Ecco il file `data.json` aggiornato! Scaricalo e caricalo su GitHub:", 
+            file=discord.File("data.json"), 
+            ephemeral=True
+        )
+    else:
+        await interaction.response.send_message("❌ Errore: il file data.json non è stato trovato.", ephemeral=True)
 
 @bot.event
 async def on_ready():
