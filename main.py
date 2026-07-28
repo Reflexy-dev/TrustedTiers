@@ -3,61 +3,8 @@ from discord import app_commands
 from discord.ext import commands, tasks
 import datetime
 import os
-import json
-import base64
-import requests
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
-
-# --- CONFIGURAZIONE GITHUB PER IL SITO ---
-GITHUB_TOKEN = "IL_TUO_GITHUB_PERSONAL_ACCESS_TOKEN"  
-REPO_OWNER = "IL_TUO_USERNAME_GITHUB"                
-REPO_NAME = "NOME_REPOSITORY_GITHUB"                  
-
-def save_players_to_github(guild: discord.Guild):
-    """Estrae tutti i giocatori con i relativi ruoli tier e li aggiorna su GitHub."""
-    players_data = []
-    
-    for member in guild.members:
-        member_tiers = {}
-        for role in member.roles:
-            for gm in GAMEMODES:
-                for t in TIER_ORDER:
-                    if role.name == f"{t} {gm}":
-                        member_tiers[gm] = t
-        
-        if member_tiers:
-            players_data.append({
-                "discord_id": str(member.id),
-                "discord_name": member.name,
-                "display_name": member.display_name,
-                "tiers": member_tiers
-            })
-
-    path = "data.json"
-    url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{path}"
-    
-    headers = {
-        "Authorization": f"Bearer {GITHUB_TOKEN}",
-        "Accept": "application/vnd.github+json"
-    }
-    
-    json_str = json.dumps(players_data, indent=4, ensure_ascii=False)
-    content_encoded = base64.b64encode(json_str.encode("utf-8")).decode("utf-8")
-    
-    sha = None
-    r_get = requests.get(url, headers=headers)
-    if r_get.status_code == 200:
-        sha = r_get.json().get("sha")
-        
-    data = {
-        "message": "Aggiornamento automatico tierlist via bot Discord",
-        "content": content_encoded
-    }
-    if sha:
-        data["sha"] = sha
-        
-    requests.put(url, headers=headers, json=data)
 
 # --- MINI SERVER WEB PER RENDER ---
 class SimpleHandler(BaseHTTPRequestHandler):
@@ -109,7 +56,7 @@ def get_current_rank(member: discord.Member, gamemode: str) -> str:
                 return t
     return "Unranked"
 
-def is_valid_promotion(current_rank: str, target_rank: str):
+def is_valid_promotion(current_rank: str, target_rank: str) -> (bool, str):
     c_rank = current_rank.upper().strip()
     t_rank = target_rank.upper().strip()
 
@@ -124,6 +71,7 @@ def is_valid_promotion(current_rank: str, target_rank: str):
         return False, f"Invalid progression! The player is `{c_rank}` and can only advance to the next rank (`{next_step}`). They cannot skip directly to `{t_rank}`!"
 
     return True, ""
+
 
 # --- TASK BACKGROUND TIMEOUT CODA ---
 @tasks.loop(minutes=1)
@@ -171,6 +119,7 @@ async def check_queue_timeouts():
 @check_queue_timeouts.before_loop
 async def before_timeouts():
     await bot.wait_until_ready()
+
 
 # --- MODALE INSERIMENTO NICK MINECRAFT (NORMALE) ---
 class MinecraftNameModal(discord.ui.Modal):
