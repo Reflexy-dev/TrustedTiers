@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="it">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -310,14 +310,6 @@
       image-rendering: crisp-edges;
     }
     .column-player-name { font-size: 14px; font-weight: 800; color: #fff; }
-
-    .empty-message {
-      text-align: center;
-      padding: 40px;
-      color: #4a5568;
-      font-size: 14px;
-      font-weight: 700;
-    }
   </style>
 </head>
 <body>
@@ -354,8 +346,6 @@
     };
 
     let currentCategory = 'Overall';
-
-    // Lista vuota: nessun player di prova iniziale
     let PLAYERS_DATA = [];
 
     function selectCategory(catKey) {
@@ -373,11 +363,11 @@
           const externalData = await response.json();
           if(externalData && Array.isArray(externalData)) {
             PLAYERS_DATA = externalData;
-            console.log("✅ Dati del bot caricati con successo:", PLAYERS_DATA);
+            console.log("✅ Data successfully loaded:", PLAYERS_DATA);
           }
         }
       } catch (e) {
-        console.error("❌ Impossibile caricare data.json:", e);
+        console.error("❌ Unable to load data.json:", e);
       }
       renderView();
     }
@@ -391,8 +381,7 @@
       area.innerHTML = '';
 
       if (PLAYERS_DATA.length === 0) {
-        area.innerHTML = `<div class="empty-message">Nessun giocatore registrato. Assegna i tier su Discord per farli apparire qui!</div>`;
-        return;
+        return; // Lascia completamente vuoto se non ci sono giocatori
       }
 
       if (currentCategory === 'Overall') {
@@ -464,7 +453,7 @@
           let cardsHtml = '';
 
           if (playersInTier.length === 0) {
-            cardsHtml = `<div style="font-size:12px; color:#4a5568; text-align:center; padding:15px;">Nessun player</div>`;
+            cardsHtml = `<div style="font-size:12px; color:#4a5568; text-align:center; padding:15px;">No players</div>`;
           } else {
             playersInTier.forEach(p => {
               const skinUrl = getSkinUrl(p.name);
