@@ -76,16 +76,21 @@ def update_json_file(guild: discord.Guild):
                                 
         if temp_tiers:
             player_region = "EU"
+            player_mc_name = member.display_name
             for gm_check in GAMEMODES:
                 for p in queues.get(gm_check, []):
                     if p['user_id'] == member.id:
                         player_region = p.get('region', 'EU')
+                        if p.get('mc_name'):
+                            player_mc_name = p['mc_name']
                 for p in high_queues.get(gm_check, []):
                     if p['user_id'] == member.id:
                         player_region = p.get('region', 'EU')
+                        if p.get('mc_name'):
+                            player_mc_name = p['mc_name']
 
             players_data.append({
-                "name": member.display_name,
+                "name": player_mc_name,
                 "region": player_region,
                 "subtitle": "Combat Member",
                 "discord_id": str(member.id),
