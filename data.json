@@ -1,12 +1,12 @@
 [
     {
-        "name": "ReflexMC",
+        "name": "WeReflexy",
         "region": "EU",
         "subtitle": "Combat Member",
         "discord_id": "1438185040310697995",
         "tiers": {
-            "Sword": "HT4",
-            "Axe": "HT4"
+            "Axe": "HT4",
+            "Sword": "LT3"
         }
     }
 ]
