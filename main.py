@@ -29,9 +29,13 @@ high_queues = {gm: [] for gm in GAMEMODES}
 active_testers = {gm: None for gm in GAMEMODES}
 active_high_testers = {gm: None for gm in GAMEMODES}
 
+# Tracciamento inattività tester
+tester_last_activity = {gm: None for gm in GAMEMODES}
+high_tester_last_activity = {gm: None for gm in GAMEMODES}
+
 cooldowns = {}
-saved_mc_names = {}   # <--- Add this
-saved_regions = {}    # <--- Add this
+saved_mc_names = {}
+saved_regions = {}
 CATEGORY_NAME = "🎯Tierlist"
 
 TIER_ORDER = [
@@ -48,7 +52,7 @@ def get_current_rank(member: discord.Member, gamemode: str) -> str:
                 return t
     return "Unranked"
 
-def is_valid_promotion(current_rank: str, target_rank: str):
+def is_valid_promotion(current_rank: str, target_rank: str, is_high_tier: bool = False):
     c_rank = current_rank.upper().strip()
     t_rank = target_rank.upper().strip()
 
@@ -58,9 +62,14 @@ def is_valid_promotion(current_rank: str, target_rank: str):
     c_idx = TIER_ORDER.index(c_rank)
     t_idx = TIER_ORDER.index(t_rank)
 
+    # Nei Tier Standard è possibile saltare gradi intermedi fino a LT3
+    if not is_high_tier:
+        return True, ""
+
+    # Nei High Tier: massimo 1 grado di avanzamento alla volta
     if t_idx > c_idx + 1:
         next_step = TIER_ORDER[c_idx + 1]
-        return False, f"Invalid progression! The player is `{c_rank}` and can only advance to the next rank (`{next_step}`). They cannot skip directly to `{t_rank}`!"
+        return False, f"Invalid High Tier progression! Player is `{c_rank}` and can only advance to `{next_step}` (+1 tier max)."
 
     return True, ""
 
@@ -77,7 +86,6 @@ def update_json_file(guild: discord.Guild):
                         temp_tiers[gm] = t  
                                 
         if temp_tiers:
-            # Prende il nick salvato in memoria, altrimenti fallback su Discord name
             player_mc_name = saved_mc_names.get(member.id, member.display_name)
             player_region = saved_regions.get(member.id, "EU")
 
@@ -89,14 +97,12 @@ def update_json_file(guild: discord.Guild):
                 "tiers": temp_tiers
             })
             
-    # 1. Salvataggio locale
     try:
         with open("data.json", "w", encoding="utf-8") as f:
             json.dump(players_data, f, indent=4, ensure_ascii=False)
     except Exception as e:
         print(f"Errore salvataggio locale data.json: {e}")
 
-    # 2. Sync automatico GitHub
     GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
     REPO_NAME = os.getenv("GITHUB_REPO")
     FILE_PATH = "data.json"
@@ -190,17 +196,19 @@ async def update_high_board_message(guild, gamemode):
                 await message.edit(embed=generate_high_queue_embed(gamemode), view=HighStaffControlView(gamemode))
                 break
 
-# --- TASK TIMEOUT CODE ---
+# --- TASK TIMEOUT CODE (INATTIVITÀ PLAYER & TESTER) ---
 @tasks.loop(minutes=1)
 async def check_queue_timeouts():
     now = datetime.datetime.utcnow()
+    guild = bot.guilds[0] if bot.guilds else None
+
     for gm in GAMEMODES:
+        # --- TIMEOUT GIOCATORI STANDARD (1 ORA) ---
         updated = False
         new_queue = []
         for player in queues[gm]:
             if (now - player['joined_at']).total_seconds() > 3600:
                 updated = True
-                guild = bot.guilds[0] if bot.guilds else None
                 if guild:
                     member = guild.get_member(player['user_id'])
                     if member:
@@ -211,15 +219,15 @@ async def check_queue_timeouts():
                 new_queue.append(player)
         if updated:
             queues[gm] = new_queue
-            for guild in bot.guilds:
+            if guild:
                 await update_board_message(guild, gm)
 
+        # --- TIMEOUT GIOCATORI HIGH (1 ORA) ---
         h_updated = False
         new_h_queue = []
         for player in high_queues[gm]:
             if (now - player['joined_at']).total_seconds() > 3600:
                 h_updated = True
-                guild = bot.guilds[0] if bot.guilds else None
                 if guild:
                     member = guild.get_member(player['user_id'])
                     if member:
@@ -230,8 +238,23 @@ async def check_queue_timeouts():
                 new_h_queue.append(player)
         if h_updated:
             high_queues[gm] = new_h_queue
-            for guild in bot.guilds:
+            if guild:
                 await update_high_board_message(guild, gm)
+
+        # --- TIMEOUT TESTER INATTIVI (30 MINUTI SENZA MOVIMENTI IN CODA) ---
+        if active_testers[gm] and tester_last_activity[gm]:
+            if (now - tester_last_activity[gm]).total_seconds() > 1800:
+                active_testers[gm] = None
+                tester_last_activity[gm] = None
+                if guild:
+                    await update_board_message(guild, gm)
+
+        if active_high_testers[gm] and high_tester_last_activity[gm]:
+            if (now - high_tester_last_activity[gm]).total_seconds() > 1800:
+                active_high_testers[gm] = None
+                high_tester_last_activity[gm] = None
+                if guild:
+                    await update_high_board_message(guild, gm)
 
 @check_queue_timeouts.before_loop
 async def before_timeouts():
@@ -251,7 +274,6 @@ class MinecraftNameModal(discord.ui.Modal):
     async def on_submit(self, interaction: discord.Interaction):
         user_id = interaction.user.id
 
-        # Salva direttamente i dati inseriti nel dizionario globale per il JSON
         saved_mc_names[user_id] = self.mc_name.value.strip()
         saved_regions[user_id] = self.region.value.upper().strip()
 
@@ -303,7 +325,6 @@ class HighMinecraftNameModal(discord.ui.Modal):
         user_id = interaction.user.id
         current_rank = get_current_rank(interaction.user, self.gamemode)
 
-        # Salva direttamente i dati inseriti nel dizionario globale per il JSON
         saved_mc_names[user_id] = self.mc_name.value.strip()
         saved_regions[user_id] = self.region.value.upper().strip()
 
@@ -370,7 +391,7 @@ class StandardResultModal(discord.ui.Modal):
             await interaction.response.send_message("❌ A player being tested cannot be Unranked!", ephemeral=True)
             return
 
-        valid, err_msg = is_valid_promotion(prev_rank_val, rank_earned)
+        valid, err_msg = is_valid_promotion(prev_rank_val, rank_earned, is_high_tier=False)
         if not valid:
             await interaction.response.send_message(f"❌ {err_msg}", ephemeral=True)
             return
@@ -439,7 +460,7 @@ class HighTierResultModal(discord.ui.Modal):
         current_rank = get_current_rank(player_member, gamemode)
 
         self.prev_rank = discord.ui.TextInput(label="Previous Rank", default=current_rank, required=True)
-        self.new_rank = discord.ui.TextInput(label="New Rank Earned (HT3, LT2...) or LT3 (Fail)", placeholder="Ex: HT3 or LT3", required=True)
+        self.new_rank = discord.ui.TextInput(label="Target/Earned Rank (Max +1 Tier)", placeholder="Ex: HT3", required=True)
         self.match_score = discord.ui.TextInput(label="Match Score", placeholder="Ex: 4-1", required=True)
 
         self.add_item(self.prev_rank)
@@ -464,7 +485,8 @@ class HighTierResultModal(discord.ui.Modal):
             await interaction.response.send_message(f"❌ Player must be at least **LT3** to do High Tier Test!", ephemeral=True)
             return
 
-        valid, err_msg = is_valid_promotion(prev_rank_val, rank_earned)
+        # Verifica della regola +1 massimo grado alla volta
+        valid, err_msg = is_valid_promotion(prev_rank_val, rank_earned, is_high_tier=True)
         if not valid:
             await interaction.response.send_message(f"❌ {err_msg}", ephemeral=True)
             return
@@ -475,6 +497,7 @@ class HighTierResultModal(discord.ui.Modal):
         c_idx = TIER_ORDER.index(prev_rank_val) if prev_rank_val in TIER_ORDER else 0
         t_idx = TIER_ORDER.index(rank_earned) if rank_earned in TIER_ORDER else 0
 
+        # Se perde, il rank non scende: rimane quello attuale
         if t_idx <= c_idx:
             eval_status = "Failed High Tier Evaluation"
             final_rank = prev_rank_val
@@ -564,7 +587,20 @@ class StaffControlView(discord.ui.View):
 
     @discord.ui.button(label="Join as Tester", style=discord.ButtonStyle.blurple)
     async def join_tester_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        active_testers[self.gamemode] = interaction.user.id
+        user_id = interaction.user.id
+        
+        # Blocco: Non può essere attivo in più di una coda contemporaneamente
+        for gm, t_id in active_testers.items():
+            if t_id == user_id and gm != self.gamemode:
+                await interaction.response.send_message(f"❌ You are already an active tester in `{gm}`! Leave that queue first.", ephemeral=True)
+                return
+        for gm, t_id in active_high_testers.items():
+            if t_id == user_id:
+                await interaction.response.send_message(f"❌ You are already an active tester in High Queue `{gm}`! Leave that queue first.", ephemeral=True)
+                return
+
+        active_testers[self.gamemode] = user_id
+        tester_last_activity[self.gamemode] = datetime.datetime.utcnow()
         await interaction.response.edit_message(embed=generate_queue_embed(self.gamemode), view=self)
 
     @discord.ui.button(label="Next Player", style=discord.ButtonStyle.green)
@@ -573,6 +609,7 @@ class StaffControlView(discord.ui.View):
             await interaction.response.send_message("❌ The queue is empty!", ephemeral=True)
             return
 
+        tester_last_activity[self.gamemode] = datetime.datetime.utcnow()
         current_player = queues[self.gamemode][0]
         guild = interaction.guild
         player_member = guild.get_member(current_player['user_id'])
@@ -628,7 +665,20 @@ class HighStaffControlView(discord.ui.View):
 
     @discord.ui.button(label="Join as Tester", style=discord.ButtonStyle.blurple)
     async def join_tester_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        active_high_testers[self.gamemode] = interaction.user.id
+        user_id = interaction.user.id
+        
+        # Blocco: Non può essere attivo in più di una coda contemporaneamente
+        for gm, t_id in active_testers.items():
+            if t_id == user_id:
+                await interaction.response.send_message(f"❌ You are already an active tester in `{gm}`! Leave that queue first.", ephemeral=True)
+                return
+        for gm, t_id in active_high_testers.items():
+            if t_id == user_id and gm != self.gamemode:
+                await interaction.response.send_message(f"❌ You are already an active tester in High Queue `{gm}`! Leave that queue first.", ephemeral=True)
+                return
+
+        active_high_testers[self.gamemode] = user_id
+        high_tester_last_activity[self.gamemode] = datetime.datetime.utcnow()
         await interaction.response.edit_message(embed=generate_high_queue_embed(self.gamemode), view=self)
 
     @discord.ui.button(label="Next Player", style=discord.ButtonStyle.green)
@@ -637,6 +687,7 @@ class HighStaffControlView(discord.ui.View):
             await interaction.response.send_message("❌ The High queue is empty!", ephemeral=True)
             return
 
+        high_tester_last_activity[self.gamemode] = datetime.datetime.utcnow()
         current_player = high_queues[self.gamemode][0]
         guild = interaction.guild
         player_member = guild.get_member(current_player['user_id'])
@@ -818,10 +869,11 @@ async def leave_tester_cmd(interaction: discord.Interaction, gamemode: str):
         await interaction.response.send_message(f"❌ Invalid gamemode.", ephemeral=True)
         return
 
+    # Controllo che sia effettivamente un tester di quella modalità o un admin
     tester_role_name = f"Tester {gamemode}"
     has_role = any(role.name == tester_role_name for role in interaction.user.roles)
     if not (has_role or interaction.user.guild_permissions.administrator):
-        await interaction.response.send_message(f"❌ You are not a **Tester {gamemode}**.", ephemeral=True)
+        await interaction.response.send_message(f"❌ Only a **Tester {gamemode}** can use this command.", ephemeral=True)
         return
 
     if active_testers[gamemode] != interaction.user.id and active_high_testers[gamemode] != interaction.user.id:
@@ -830,9 +882,12 @@ async def leave_tester_cmd(interaction: discord.Interaction, gamemode: str):
 
     if active_testers[gamemode] == interaction.user.id:
         active_testers[gamemode] = None
+        tester_last_activity[gamemode] = None
         await update_board_message(interaction.guild, gamemode)
+        
     if active_high_testers[gamemode] == interaction.user.id:
         active_high_testers[gamemode] = None
+        high_tester_last_activity[gamemode] = None
         await update_high_board_message(interaction.guild, gamemode)
 
     await interaction.response.send_message(f"✅ You are no longer active tester for **{gamemode}**.", ephemeral=True)
