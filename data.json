@@ -5,8 +5,8 @@
         "subtitle": "Combat Member",
         "discord_id": "1438185040310697995",
         "tiers": {
-            "Axe": "HT4",
-            "Sword": "LT4"
+            "Sword": "HT4",
+            "Axe": "HT4"
         }
     }
 ]
