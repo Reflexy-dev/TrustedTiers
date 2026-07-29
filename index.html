@@ -321,13 +321,13 @@
   <div class="container">
     <div class="category-bar" id="categoryBar">
       <button class="cat-tab active" data-key="Overall" onclick="selectCategory('Overall')"><img src="https://minecraft.wiki/images/Golden_Apple_JE2_BE2.png?aa827" alt="Overall"> Overall</button>
+      <button class="cat-tab" data-key="Crystal" onclick="selectCategory('Crystal')"><img src="https://minecraft.wiki/images/End_Crystal_%28item%29_JE2_BE2.png?e1ecd" alt="Crystal"> Crystal</button>
+      <button class="cat-tab" data-key="Netherite" onclick="selectCategory('Netherite')"><img src="https://minecraft.wiki/images/Netherite_Sword_JE2_BE2.png?8e866" alt="Netherite"> Netherite</button>
+      <button class="cat-tab" data-key="SMP" onclick="selectCategory('SMP')"><img src="https://minecraft.wiki/images/Golden_Apple_JE2_BE2.png?aa827" alt="SMP"> SMP</button>
       <button class="cat-tab" data-key="Sword" onclick="selectCategory('Sword')"><img src="https://minecraft.wiki/images/Diamond_Sword_JE3_BE3.png?24296" alt="Sword"> Sword</button>
       <button class="cat-tab" data-key="Axe" onclick="selectCategory('Axe')"><img src="https://minecraft.wiki/images/Diamond_Axe_JE3_BE3.png?99125" alt="Axe"> Axe</button>
-      <button class="cat-tab" data-key="UHC" onclick="selectCategory('UHC')"><img src="https://minecraft.wiki/images/Golden_Apple_JE2_BE2.png?aa827" alt="UHC"> UHC</button>
-      <button class="cat-tab" data-key="DiaPot" onclick="selectCategory('DiaPot')"><img src="https://minecraft.wiki/images/Splash_Potion_of_Healing_JE2_BE2.png?d45f1" alt="DiaPot"> DiaPot</button>
-      <button class="cat-tab" data-key="NethPot" onclick="selectCategory('NethPot')"><img src="https://minecraft.wiki/images/Netherite_Sword_JE2_BE2.png?8e866" alt="NethPot"> NethPot</button>
-      <button class="cat-tab" data-key="Cart" onclick="selectCategory('Cart')"><img src="https://minecraft.wiki/images/Minecart_with_TNT_%28item%29_JE2_BE2.png?61a90" alt="Cart"> Cart</button>
-      <button class="cat-tab" data-key="Crystal" onclick="selectCategory('Crystal')"><img src="https://minecraft.wiki/images/End_Crystal_%28item%29_JE2_BE2.png?e1ecd" alt="Crystal"> Crystal</button>
+      <button class="cat-tab" data-key="Mace" onclick="selectCategory('Mace')"><img src="https://minecraft.wiki/images/Mace_JE1_BE1.png" alt="Mace"> Mace</button>
+      <button class="cat-tab" data-key="Pot" onclick="selectCategory('Pot')"><img src="https://minecraft.wiki/images/Splash_Potion_of_Healing_JE2_BE2.png?d45f1" alt="Pot"> Pot</button>
     </div>
 
     <div id="contentArea"></div>
@@ -336,13 +336,13 @@
   <script>
     const ITEM_ICONS = {
       'Overall': 'https://minecraft.wiki/images/Golden_Apple_JE2_BE2.png?aa827',
+      'Crystal': 'https://minecraft.wiki/images/End_Crystal_%28item%29_JE2_BE2.png?e1ecd',
+      'Netherite': 'https://minecraft.wiki/images/Netherite_Sword_JE2_BE2.png?8e866',
+      'SMP': 'https://minecraft.wiki/images/Golden_Apple_JE2_BE2.png?aa827',
       'Sword': 'https://minecraft.wiki/images/Diamond_Sword_JE3_BE3.png?24296',
       'Axe': 'https://minecraft.wiki/images/Diamond_Axe_JE3_BE3.png?99125',
-      'UHC': 'https://minecraft.wiki/images/Golden_Apple_JE2_BE2.png?aa827',
-      'DiaPot': 'https://minecraft.wiki/images/Splash_Potion_of_Healing_JE2_BE2.png?d45f1',
-      'NethPot': 'https://minecraft.wiki/images/Netherite_Sword_JE2_BE2.png?8e866',
-      'Cart': 'https://minecraft.wiki/images/Minecart_with_TNT_%28item%29_JE2_BE2.png?61a90',
-      'Crystal': 'https://minecraft.wiki/images/End_Crystal_%28item%29_JE2_BE2.png?e1ecd'
+      'Mace': 'https://minecraft.wiki/images/Mace_JE1_BE1.png',
+      'Pot': 'https://minecraft.wiki/images/Splash_Potion_of_Healing_JE2_BE2.png?d45f1'
     };
 
     let currentCategory = 'Overall';
@@ -358,7 +358,7 @@
 
     async function loadDiscordData() {
       try {
-        const response = await fetch('data.json?cb=' + Date.now());
+        const response = await fetch('/data.json?cb=' + Date.now());
         if(response.ok) {
           const externalData = await response.json();
           if(externalData && Array.isArray(externalData)) {
