@@ -6,9 +6,9 @@
   <title>TrustedTiers - Leaderboard</title>
   <style>
     :root {
-      --bg-dark: #0f1219;
-      --card-bg: #161b26;
-      --card-border: #212838;
+      --bg-dark: #0b0e14;
+      --card-bg: #151922;
+      --card-border: #232a3b;
       --gold: #ffbe2e;
       --silver: #b0c0d0;
       --bronze: #d97736;
@@ -22,7 +22,7 @@
       background-color: var(--bg-dark);
       color: #ffffff;
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      padding: 25px;
+      padding: 30px 15px;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -45,14 +45,14 @@
       text-transform: uppercase;
     }
 
-    /* BARRA MODALITÀ */
+    /* BARRA CATEGORIE GAMEMODES */
     .nav-modes {
       width: 100%;
       max-width: 1250px;
       display: flex;
       gap: 8px;
       overflow-x: auto;
-      padding-bottom: 15px;
+      padding-bottom: 12px;
       margin-bottom: 25px;
       scrollbar-width: thin;
       scrollbar-color: #232a3b transparent;
@@ -77,8 +77,8 @@
     }
 
     .mode-btn img {
-      width: 28px;
-      height: 28px;
+      width: 26px;
+      height: 26px;
       object-fit: contain;
     }
 
@@ -111,15 +111,16 @@
       background: var(--card-bg);
       border: 1px solid var(--card-border);
       border-radius: 12px;
-      display: flex;
+      display: grid;
+      grid-template-columns: 320px 100px 1fr; /* Allineamento Perfetto colonne */
       align-items: center;
-      justify-content: space-between;
       padding-right: 20px;
       position: relative;
       overflow: hidden;
+      transition: transform 0.2s ease;
     }
 
-    /* ETICHETTA TAGLIATA (RANK + SKIN) */
+    /* ETICHETTA TRAPEZIO RANK + SKIN */
     .rank-tag-box {
       display: flex;
       align-items: center;
@@ -136,7 +137,7 @@
       font-weight: 900;
       font-style: italic;
       color: #ffffff;
-      min-width: 40px;
+      min-width: 45px;
     }
 
     .player-avatar {
@@ -148,61 +149,71 @@
     .player-main-info {
       display: flex;
       align-items: center;
-      flex-grow: 1;
     }
 
     .player-details h3 {
-      font-size: 1.3rem;
+      font-size: 1.2rem;
       font-weight: 800;
       color: #ffffff;
     }
 
     .player-details .title-pts {
-      font-size: 0.85rem;
+      font-size: 0.82rem;
       color: #637394;
       font-weight: 600;
       margin-top: 2px;
     }
 
-    .player-details .title-pts span {
-      color: #8b9bb4;
+    .player-details .title-pts span { color: #8b9bb4; }
+
+    /* ANIMAZIONI DI ILLUMINAZIONE PODI (1°, 2°, 3°) */
+    @keyframes goldGlow {
+      0%, 100% { box-shadow: 0 0 10px rgba(255, 190, 46, 0.2); }
+      50% { box-shadow: 0 0 22px rgba(255, 190, 46, 0.55); }
+    }
+    @keyframes silverGlow {
+      0%, 100% { box-shadow: 0 0 10px rgba(176, 192, 208, 0.15); }
+      50% { box-shadow: 0 0 20px rgba(176, 192, 208, 0.45); }
+    }
+    @keyframes bronzeGlow {
+      0%, 100% { box-shadow: 0 0 10px rgba(217, 119, 54, 0.15); }
+      50% { box-shadow: 0 0 20px rgba(217, 119, 54, 0.45); }
     }
 
-    /* PODI LUMINOSI OVERALL */
     .player-card.rank-1 {
-      border-color: rgba(255, 190, 46, 0.6);
-      box-shadow: 0 0 15px rgba(255, 190, 46, 0.2);
+      border-color: rgba(255, 190, 46, 0.8);
+      animation: goldGlow 3s infinite ease-in-out;
     }
     .player-card.rank-1 .rank-tag-box { background: var(--gold); }
     .player-card.rank-1 .rank-num { color: #000; }
 
     .player-card.rank-2 {
-      border-color: rgba(176, 192, 208, 0.6);
-      box-shadow: 0 0 15px rgba(176, 192, 208, 0.15);
+      border-color: rgba(176, 192, 208, 0.8);
+      animation: silverGlow 3s infinite ease-in-out 0.5s;
     }
     .player-card.rank-2 .rank-tag-box { background: var(--silver); }
     .player-card.rank-2 .rank-num { color: #000; }
 
     .player-card.rank-3 {
-      border-color: rgba(217, 119, 54, 0.6);
-      box-shadow: 0 0 15px rgba(217, 119, 54, 0.15);
+      border-color: rgba(217, 119, 54, 0.8);
+      animation: bronzeGlow 3s infinite ease-in-out 1s;
     }
     .player-card.rank-3 .rank-tag-box { background: var(--bronze); }
     .player-card.rank-3 .rank-num { color: #fff; }
 
-    /* SEZIONE DESTRA OVERALL (REGION & TIERS TESTATI) */
-    .right-section {
+    /* REGIONI E TIERS ALLINEATI */
+    .region-container {
       display: flex;
-      align-items: center;
-      gap: 20px;
+      justify-content: center;
     }
 
     .region-tag {
       font-weight: 800;
-      font-size: 0.85rem;
-      padding: 6px 12px;
+      font-size: 0.8rem;
+      padding: 5px 12px;
       border-radius: 8px;
       color: white;
+      text-align: center;
     }
     .region-tag.EU { background: #16a34a; }
     .region-tag.NA { background: #dc2626; }
@@ -210,8 +221,10 @@
 
     .tested-tiers-list {
       display: flex;
-      gap: 8px;
+      gap: 12px;
       align-items: center;
+      justify-content: flex-end;
+      flex-wrap: wrap;
     }
 
     .tier-badge-item {
@@ -233,8 +246,8 @@
     }
 
     .icon-circle img {
-      width: 20px;
-      height: 20px;
+      width: 18px;
+      height: 18px;
       object-fit: contain;
     }
 
@@ -247,10 +260,10 @@
     .tier-subtext.t3 { color: var(--bronze); }
     .tier-subtext.t4, .tier-subtext.t5 { color: #9ca3af; }
 
-    /* COLONNE TIER PER LE GAMEMODES */
+    /* SCHEDA SINGOLE GAMEMODES (TIER COLUMNS) */
     .tier-columns {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
       gap: 15px;
       width: 100%;
     }
@@ -292,7 +305,7 @@
       display: flex;
       align-items: center;
       gap: 12px;
-      padding: 10px;
+      padding: 8px 12px;
       background: #0f1219;
       border: 1px solid #212838;
       border-radius: 8px;
@@ -372,56 +385,39 @@
   <div id="content"></div>
 
   <script>
-    // Mappa Icone Modalità
     const icons = {
       sword: "https://minecraft.wiki/images/Diamond_Sword_JE3_BE3.png?24296",
       axe: "https://minecraft.wiki/images/Diamond_Axe_JE3_BE3.png?99125",
       uhc: "https://minecraft.wiki/images/Golden_Apple_JE2_BE2.png?aa827",
       diapot: "https://minecraft.wiki/images/Splash_Potion_of_Healing_JE2.png?d45f1",
       nethpot: "https://minecraft.wiki/images/Netherite_Sword_JE2_BE2.png?8e866",
+      diasmp: "https://minecraft.wiki/images/Chorus_Fruit_JE2_BE2.png?c8e41",
       smp: "https://minecraft.wiki/images/Shield_JE2_BE1.png?4837d",
-      mace: "https://minecraft.wiki/images/Mace_JE1_BE1.png?90f67"
+      mace: "https://minecraft.wiki/images/Mace_JE1_BE1.png?90f67",
+      spearmace: "https://minecraft.wiki/images/Netherite_Spear_JE1_BE2.png?8c3ba",
+      cart: "https://minecraft.wiki/images/Minecart_with_TNT_%28item%29_JE2_BE2.png?61a90",
+      endcrystal: "https://minecraft.wiki/images/End_Crystal_%28item%29_JE2_BE2.png?e1ecd"
     };
 
-    // DATI OVERALL (Mostra solo dove il player è testato)
-    const mockOverall = [
+    // DATABASE UNIFICATO: I dati inseriti qui aggiornano sia l'Overall che le sezioni Gamemode!
+    const playersData = [
       {
         rank: 1, name: "Marlowww", title: "Combat Grandmaster", points: 450, region: "NA",
-        testedTiers: [
-          { mode: "diapot", tier: "HT1" }, { mode: "smp", tier: "HT1" }, { mode: "nethpot", tier: "HT1" },
-          { mode: "mace", tier: "HT1" }, { mode: "sword", tier: "HT1" }, { mode: "uhc", tier: "LT1" }
-        ]
+        tiers: { diapot: "HT1", smp: "HT1", nethpot: "HT1", mace: "HT1", sword: "HT1", uhc: "LT1", cart: "HT5" }
       },
       {
         rank: 2, name: "ItzRealMe", title: "Combat Master", points: 330, region: "NA",
-        testedTiers: [
-          { mode: "sword", tier: "HT3" }, { mode: "diapot", tier: "HT1" }, { mode: "smp", tier: "HT1" },
-          { mode: "uhc", tier: "LT2" }, { mode: "axe", tier: "LT2" }
-        ]
+        tiers: { sword: "HT3", diapot: "HT1", smp: "HT1", uhc: "LT2", axe: "LT2" }
       },
       {
         rank: 3, name: "coldified", title: "Combat Master", points: 326, region: "EU",
-        testedTiers: [
-          { mode: "diapot", tier: "LT1" }, { mode: "uhc", tier: "HT1" }, { mode: "smp", tier: "HT1" },
-          { mode: "sword", tier: "LT1" }, { mode: "axe", tier: "LT1" }
-        ]
+        tiers: { diapot: "LT1", uhc: "HT1", smp: "HT1", sword: "LT1", axe: "LT1" }
       },
       {
         rank: 15, name: "Spawnplayer", title: "Combat Ace", points: 152, region: "AS",
-        testedTiers: [
-          { mode: "sword", tier: "LT2" }, { mode: "axe", tier: "HT3" }
-        ]
+        tiers: { sword: "LT2", axe: "HT3" }
       }
     ];
-
-    // DATI PER LE GAMEMODES (Dividono internamente tra HT e LT)
-    const mockTiers = {
-      tier1: { ht: ["WeReflexy"], lt: ["K1RBE"] },
-      tier2: { ht: ["Snoowwyyyyyy"], lt: ["amacq"] },
-      tier3: { ht: ["_MannerL3gendOP"], lt: ["BlightMCYT"] },
-      tier4: { ht: ["QuadridBoost"], lt: ["ewhu"] },
-      tier5: { ht: ["ItzJacobXD"], lt: ["1105sldjfrnf"] }
-    };
 
     function getTierClass(tierStr) {
       if (tierStr.includes('1')) return 't1';
@@ -439,10 +435,10 @@
 
       if (category === 'overall') {
         container.className = 'leaderboard-list';
-        container.innerHTML = mockOverall.map(p => `
+        container.innerHTML = playersData.map(p => `
           <div class="player-card rank-${p.rank <= 3 ? p.rank : 'other'}">
+            <!-- 1. Rank & Skin -->
             <div class="player-main-info">
-              <!-- Tagliando Trapezio Grigio/Oro/Argento/Bronzo -->
               <div class="rank-tag-box">
                 <span class="rank-num">${p.rank}.</span>
                 <img class="player-avatar" src="https://render.crafty.gg/3d/bust/${p.name}" alt="${p.name}">
@@ -453,49 +449,58 @@
               </div>
             </div>
 
-            <!-- Sezione Destra: Region + Gamemodes testate -->
-            <div class="right-section">
+            <!-- 2. Region alla stessa identica distanza -->
+            <div class="region-container">
               <span class="region-tag ${p.region}">${p.region}</span>
-              <div class="tested-tiers-list">
-                ${p.testedTiers.map(t => `
-                  <div class="tier-badge-item">
-                    <div class="icon-circle">
-                      <img src="${icons[t.mode] || ''}" alt="${t.mode}">
-                    </div>
-                    <span class="tier-subtext ${getTierClass(t.tier)}">${t.tier}</span>
+            </div>
+
+            <!-- 3. Gamemodes dove è testato -->
+            <div class="tested-tiers-list">
+              ${Object.keys(p.tiers).map(mode => `
+                <div class="tier-badge-item">
+                  <div class="icon-circle">
+                    <img src="${icons[mode] || ''}" alt="${mode}">
                   </div>
-                `).join('')}
-              </div>
+                  <span class="tier-subtext ${getTierClass(p.tiers[mode])}">${p.tiers[mode]}</span>
+                </div>
+              `).join('')}
             </div>
           </div>
         `).join('');
       } else {
+        // PER OGNI GAMEMODE: Filtra in automatico chi appartiene a HT/LT 1, 2, 3, 4, 5
         container.className = 'tier-columns';
-        container.innerHTML = [1, 2, 3, 4, 5].map(num => `
-          <div class="tier-col">
-            <div class="tier-header t${num}-head">TIER ${num}</div>
+        
+        container.innerHTML = [1, 2, 3, 4, 5].map(tierNum => {
+          const htPlayers = playersData.filter(p => p.tiers[category] === `HT${tierNum}`);
+          const ltPlayers = playersData.filter(p => p.tiers[category] === `LT${tierNum}`);
 
-            <div class="sub-group-title">HT${num}</div>
-            ${mockTiers[`tier${num}`].ht.map(p => `
-              <div class="tier-player-card">
-                <img src="https://render.crafty.gg/3d/bust/${p}" alt="${p}">
-                <span>${p}</span>
-              </div>
-            `).join('')}
+          return `
+            <div class="tier-col">
+              <div class="tier-header t${tierNum}-head">TIER ${tierNum}</div>
 
-            <div class="sub-group-title">LT${num}</div>
-            ${mockTiers[`tier${num}`].lt.map(p => `
-              <div class="tier-player-card">
-                <img src="https://render.crafty.gg/3d/bust/${p}" alt="${p}">
-                <span>${p}</span>
-              </div>
-            `).join('')}
-          </div>
-        `).join('');
+              <div class="sub-group-title">HT${tierNum}</div>
+              ${htPlayers.map(p => `
+                <div class="tier-player-card">
+                  <img src="https://render.crafty.gg/3d/bust/${p.name}" alt="${p.name}">
+                  <span>${p.name}</span>
+                </div>
+              `).join('')}
+
+              <div class="sub-group-title">LT${tierNum}</div>
+              ${ltPlayers.map(p => `
+                <div class="tier-player-card">
+                  <img src="https://render.crafty.gg/3d/bust/${p.name}" alt="${p.name}">
+                  <span>${p.name}</span>
+                </div>
+              `).join('')}
+            </div>
+          `;
+        }).join('');
       }
     }
 
-    // Avvio sulla schermata Overall
+    // Caricamento Iniziale
     switchCategory('overall', document.querySelector('.mode-btn.active'));
   </script>
 </body>
