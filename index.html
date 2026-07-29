@@ -68,7 +68,6 @@
     .cat-tab:hover { color: #cbd5e0; background: rgba(29, 38, 58, 0.4); }
     .cat-tab.active { background: #1d263a; color: #ffffff; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
 
-    /* LAYOUT OVERALL */
     .table-header {
       display: grid;
       grid-template-columns: 90px 1fr 100px auto;
@@ -114,7 +113,6 @@
       overflow: hidden;
     }
 
-    /* Effetto sbrilluccichio / riflesso animato per il podio */
     .rank-box::after {
       content: '';
       position: absolute;
@@ -138,93 +136,38 @@
       100% { transform: rotate(30deg) translate(100%, 100%); }
     }
     
-    /* Colori podio corretti e distinti con glow pulsante */
-    .rank-1 { 
-      background: linear-gradient(135deg, #ffd000, #cca100); 
-      color: #121826; 
-      box-shadow: inset 0 0 15px rgba(255, 221, 0, 0.6), 0 0 12px rgba(255, 183, 3, 0.4);
-      animation: pulse-gold 2s infinite alternate;
-    }
-    .rank-2 { 
-      background: linear-gradient(135deg, #f1f5f9, #cbd5e1); 
-      color: #121826; 
-      box-shadow: inset 0 0 15px rgba(255, 255, 255, 0.6), 0 0 10px rgba(203, 213, 225, 0.3);
-      animation: pulse-silver 2s infinite alternate;
-    }
-    .rank-3 { 
-      background: linear-gradient(135deg, #f59e0b, #b45309); 
-      color: #121826; 
-      box-shadow: inset 0 0 15px rgba(245, 158, 11, 0.6), 0 0 10px rgba(217, 119, 6, 0.4);
-      animation: pulse-bronze 2s infinite alternate;
-    }
+    .rank-1 { background: linear-gradient(135deg, #ffd000, #cca100); color: #121826; box-shadow: inset 0 0 15px rgba(255, 221, 0, 0.6), 0 0 12px rgba(255, 183, 3, 0.4); animation: pulse-gold 2s infinite alternate; }
+    .rank-2 { background: linear-gradient(135deg, #f1f5f9, #cbd5e1); color: #121826; box-shadow: inset 0 0 15px rgba(255, 255, 255, 0.6), 0 0 10px rgba(203, 213, 225, 0.3); animation: pulse-silver 2s infinite alternate; }
+    .rank-3 { background: linear-gradient(135deg, #f59e0b, #b45309); color: #121826; box-shadow: inset 0 0 15px rgba(245, 158, 11, 0.6), 0 0 10px rgba(217, 119, 6, 0.4); animation: pulse-bronze 2s infinite alternate; }
     .rank-other { background: #1a2333; color: #a0aec0; }
 
     @keyframes pulse-gold {
       0% { filter: brightness(1); box-shadow: inset 0 0 15px rgba(255, 221, 0, 0.6), 0 0 8px rgba(255, 183, 3, 0.3); }
       100% { filter: brightness(1.15); box-shadow: inset 0 0 20px rgba(255, 240, 100, 0.8), 0 0 16px rgba(255, 215, 0, 0.7); }
     }
-
     @keyframes pulse-silver {
       0% { filter: brightness(1); box-shadow: inset 0 0 15px rgba(255, 255, 255, 0.6), 0 0 8px rgba(203, 213, 225, 0.3); }
       100% { filter: brightness(1.15); box-shadow: inset 0 0 20px rgba(255, 255, 255, 0.9), 0 0 16px rgba(241, 245, 249, 0.6); }
     }
-
     @keyframes pulse-bronze {
       0% { filter: brightness(1); box-shadow: inset 0 0 15px rgba(245, 158, 11, 0.6), 0 0 8px rgba(217, 119, 6, 0.3); }
       100% { filter: brightness(1.15); box-shadow: inset 0 0 20px rgba(252, 211, 77, 0.8), 0 0 16px rgba(245, 158, 11, 0.7); }
     }
 
-    .player-info { 
-      display: flex; 
-      align-items: center; 
-      gap: 18px; 
-      position: relative;
-      z-index: 3;
-      margin-left: -12px;
-    }
-
-    /* Skin altissima nitidezza senza sfocature */
-    .player-avatar { 
-      width: 64px; 
-      height: 64px; 
-      object-fit: contain; 
-      image-rendering: pixelated;
-      image-rendering: crisp-edges;
-      -webkit-font-smoothing: antialiased;
-      filter: drop-shadow(3px 5px 8px rgba(0,0,0,0.6));
-    }
-
+    .player-info { display: flex; align-items: center; gap: 18px; position: relative; z-index: 3; margin-left: -12px; }
+    .player-avatar { width: 64px; height: 64px; object-fit: contain; image-rendering: pixelated; image-rendering: crisp-edges; filter: drop-shadow(3px 5px 8px rgba(0,0,0,0.6)); }
     .player-details { display: flex; flex-direction: column; justify-content: center; }
     .player-name { font-size: 18px; font-weight: 800; color: #ffffff; line-height: 1.2; }
     .player-subtitle { font-size: 12px; font-weight: 600; color: #718096; }
 
-    .region-badge {
-      width: 34px;
-      height: 24px;
-      border-radius: 4px;
-      font-size: 11px;
-      font-weight: 800;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      text-transform: uppercase;
-    }
+    .region-badge { width: 34px; height: 24px; border-radius: 4px; font-size: 11px; font-weight: 800; display: flex; align-items: center; justify-content: center; text-transform: uppercase; }
     .region-EU { background: #22543d; color: #68d391; }
     .region-NA { background: #742a2a; color: #fc8181; }
 
     .tiers-flex { display: flex; align-items: center; gap: 10px; padding-right: 20px; }
     .tier-item { display: flex; flex-direction: column; align-items: center; gap: 3px; }
 
-    .icon-circle {
-      width: 42px;
-      height: 42px;
-      background: #0b0f19;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border: 1px solid #1d263a;
-    }
+    .icon-circle { width: 42px; height: 42px; background: #0b0f19; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 1px solid #1d263a; }
     .icon-circle img { width: 32px; height: 32px; object-fit: contain; image-rendering: pixelated; }
     .tier-label { font-size: 11px; font-weight: 900; }
     .tier-HT1, .tier-LT1 { color: #ffb703; }
@@ -233,103 +176,32 @@
     .tier-HT4, .tier-LT4 { color: #a855f7; }
     .tier-HT5, .tier-LT5 { color: #94a3b8; }
 
-    /* LAYOUT A COLONNE PER CATEGORIA */
-    .tier-columns-container {
-      display: grid;
-      grid-template-columns: repeat(5, 1fr);
-      gap: 15px;
-    }
-    @media (max-width: 1024px) {
-      .tier-columns-container { grid-template-columns: 1fr; }
-    }
+    .tier-columns-container { display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; }
+    @media (max-width: 1024px) { .tier-columns-container { grid-template-columns: 1fr; } }
 
-    .tier-column {
-      background: #121826;
-      border: 1px solid #1a2333;
-      border-radius: 12px;
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
-    }
-
-    .tier-column-header {
-      background: #1a2333;
-      padding: 14px;
-      text-align: center;
-      font-size: 15px;
-      font-weight: 900;
-      color: #fff;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      border-bottom: 1px solid #232d42;
-    }
-
-    .tier-column-header.t1 { 
-      background: linear-gradient(135deg, rgba(255, 209, 0, 0.18), rgba(204, 161, 0, 0.08)); 
-      color: #ffd000; 
-      border-bottom-color: rgba(255, 209, 0, 0.3); 
-    }
-    .tier-column-header.t2 { 
-      background: linear-gradient(135deg, rgba(241, 245, 249, 0.12), rgba(203, 213, 225, 0.05)); 
-      color: #e2e8f0; 
-      border-bottom-color: rgba(241, 245, 249, 0.2); 
-    }
-    .tier-column-header.t3 { 
-      background: linear-gradient(135deg, rgba(245, 158, 11, 0.18), rgba(180, 83, 9, 0.08)); 
-      color: #f59e0b; 
-      border-bottom-color: rgba(245, 158, 11, 0.3); 
-    }
-    .tier-column-header.t4 { 
-      background: #161c29; 
-      color: #94a3b8; 
-      border-bottom-color: #232d42; 
-    }
-    .tier-column-header.t5 { 
-      background: #161c29; 
-      color: #94a3b8; 
-      border-bottom-color: #232d42; 
-    }
-
-    .tier-column-body {
-      padding: 10px;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-
-    .column-player-card {
-      background: #0f1523;
-      border: 1px solid #1a2333;
-      border-radius: 8px;
-      padding: 8px 12px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-    }
-    .column-player-left { display: flex; align-items: center; gap: 10px; }
+    .tier-column { background: #121826; border: 1px solid #1a2333; border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+    .tier-column-header { background: #1a2333; padding: 14px; text-align: center; font-size: 15px; font-weight: 900; color: #fff; display: flex; align-items: center; justify-content: center; gap: 8px; border-bottom: 1px solid #232d42; }
     
-    /* Skin nitide anche nelle colonne */
-    .column-player-avatar { 
-      width: 38px; 
-      height: 38px; 
-      object-fit: contain; 
-      image-rendering: pixelated;
-      image-rendering: crisp-edges;
-    }
+    .tier-column-header.t1 { background: linear-gradient(135deg, rgba(255, 209, 0, 0.18), rgba(204, 161, 0, 0.08)); color: #ffd000; border-bottom-color: rgba(255, 209, 0, 0.3); }
+    .tier-column-header.t2 { background: linear-gradient(135deg, rgba(241, 245, 249, 0.12), rgba(203, 213, 225, 0.05)); color: #e2e8f0; border-bottom-color: rgba(241, 245, 249, 0.2); }
+    .tier-column-header.t3 { background: linear-gradient(135deg, rgba(245, 158, 11, 0.18), rgba(180, 83, 9, 0.08)); color: #f59e0b; border-bottom-color: rgba(245, 158, 11, 0.3); }
+    .tier-column-header.t4, .tier-column-header.t5 { background: #161c29; color: #94a3b8; border-bottom-color: #232d42; }
+
+    .tier-column-body { padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+    .column-player-card { background: #0f1523; border: 1px solid #1a2333; border-radius: 8px; padding: 8px 12px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .column-player-left { display: flex; align-items: center; gap: 10px; }
+    .column-player-avatar { width: 38px; height: 38px; object-fit: contain; image-rendering: pixelated; image-rendering: crisp-edges; }
     .column-player-name { font-size: 14px; font-weight: 800; color: #fff; }
 
     .empty-msg {
       text-align: center;
-      padding: 50px;
-      color: #4a5568;
+      padding: 60px 20px;
+      color: #718096;
       font-size: 15px;
       font-weight: 700;
       background: #121826;
-      border-radius: 10px;
-      border: 1px dashed #1a2333;
+      border-radius: 12px;
+      border: 1px solid #1a2333;
     }
   </style></head><body>
 
@@ -365,14 +237,7 @@
     };
 
     let currentCategory = 'Overall';
-
-    let PLAYERS_DATA = [
-      { name: "Marlowww", region: "NA", subtitle: "Combat Grandmaster", tiers: { "Overall": "HT1", "Sword": "HT1", "Cart": "HT1", "Crystal": "HT2" } },
-      { name: "ItzRealMe", region: "NA", subtitle: "Combat Master", tiers: { "Overall": "HT1", "Sword": "HT2", "Cart": "HT1", "Crystal": "HT1" } },
-      { name: "coldified", region: "EU", subtitle: "Combat Master", tiers: { "Overall": "LT1", "Sword": "HT3", "Cart": "HT2", "Crystal": "HT3" } },
-      { name: "Swight", region: "NA", subtitle: "Combat Master", tiers: { "Overall": "HT2", "Sword": "HT4", "Cart": "HT3", "Crystal": "HT4" } },
-      { name: "WeReflexy", region: "EU", subtitle: "Tester Cart", tiers: { "Overall": "LT2", "Sword": "HT5", "Cart": "HT5", "Crystal": "HT5" } }
-    ];
+    let PLAYERS_DATA = []; // Parte vuoto, prende solo i dati reali
 
     function selectCategory(catKey) {
       currentCategory = catKey;
@@ -384,13 +249,16 @@
 
     async function loadDiscordData() {
       try {
+        // Legge direttamente il file data.json che si trova nella stessa cartella/repository
         const response = await fetch('data.json?cb=' + Date.now());
         if(response.ok) {
           const externalData = await response.json();
-          if(externalData && externalData.length > 0) PLAYERS_DATA = externalData;
+          if(externalData && Array.isArray(externalData)) {
+            PLAYERS_DATA = externalData;
+          }
         }
       } catch (e) {
-        console.log("Uso dati di test interni.");
+        console.log("Impossibile caricare il data.json:", e);
       }
       renderView();
     }
@@ -402,6 +270,11 @@
     function renderView() {
       const area = document.getElementById('contentArea');
       area.innerHTML = '';
+
+      if (PLAYERS_DATA.length === 0) {
+        area.innerHTML = `<div class="empty-msg">Nessun player trovato nel database o file data.json vuoto. Assegna un ruolo su Discord per popolare la classifica!</div>`;
+        return;
+      }
 
       if (currentCategory === 'Overall') {
         let html = `
@@ -417,14 +290,17 @@
         PLAYERS_DATA.forEach((player, index) => {
           let rankClass = index === 0 ? 'rank-1' : index === 1 ? 'rank-2' : index === 2 ? 'rank-3' : 'rank-other';
           let tiersHtml = '';
-          for (const [cat, tierVal] of Object.entries(player.tiers)) {
-            const imgUrl = ITEM_ICONS[cat] || ITEM_ICONS['Overall'];
-            tiersHtml += `
-              <div class="tier-item">
-                <div class="icon-circle"><img src="${imgUrl}" alt="${cat}"></div>
-                <div class="tier-label tier-${tierVal}">${tierVal}</div>
-              </div>
-            `;
+          
+          if (player.tiers) {
+            for (const [cat, tierVal] of Object.entries(player.tiers)) {
+              const imgUrl = ITEM_ICONS[cat] || ITEM_ICONS['Overall'];
+              tiersHtml += `
+                <div class="tier-item">
+                  <div class="icon-circle"><img src="${imgUrl}" alt="${cat}"></div>
+                  <div class="tier-label tier-${tierVal}">${tierVal}</div>
+                </div>
+              `;
+            }
           }
 
           const skinUrl = getSkinUrl(player.name);
@@ -489,7 +365,7 @@
           }
 
           columnsHtml += `
-            <div class="tier-column">
+            <div class="tierlist-column tier-column">
               <div class="tier-column-header t${i}">🏆 Tier ${i}</div>
               <div class="tier-column-body">${cardsHtml}</div>
             </div>
@@ -500,5 +376,7 @@
       }
     }
 
+    // Carica i dati all'avvio e imposta un auto-aggiornamento ogni 15 secondi
     loadDiscordData();
+    setInterval(loadDiscordData, 15000);
   </script></body></html>
