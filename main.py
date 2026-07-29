@@ -251,6 +251,10 @@ class MinecraftNameModal(discord.ui.Modal):
     async def on_submit(self, interaction: discord.Interaction):
         user_id = interaction.user.id
 
+        # Salva direttamente i dati inseriti nel dizionario globale per il JSON
+        saved_mc_names[user_id] = self.mc_name.value.strip()
+        saved_regions[user_id] = self.region.value.upper().strip()
+
         if user_id in cooldowns and datetime.datetime.utcnow() < cooldowns[user_id]:
             remaining = (cooldowns[user_id] - datetime.datetime.utcnow()).days + 1
             await interaction.response.send_message(f"❌ You are on cooldown! You can join a queue again in about {remaining} day(s).", ephemeral=True)
@@ -298,6 +302,10 @@ class HighMinecraftNameModal(discord.ui.Modal):
     async def on_submit(self, interaction: discord.Interaction):
         user_id = interaction.user.id
         current_rank = get_current_rank(interaction.user, self.gamemode)
+
+        # Salva direttamente i dati inseriti nel dizionario globale per il JSON
+        saved_mc_names[user_id] = self.mc_name.value.strip()
+        saved_regions[user_id] = self.region.value.upper().strip()
 
         if current_rank not in HIGH_TIERS_QUEUE:
             await interaction.response.send_message(f"❌ You must be at least **LT3** in `{self.gamemode}` to join this queue! Your rank: `{current_rank}`", ephemeral=True)
