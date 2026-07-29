@@ -405,16 +405,42 @@
       Crystal: "https://minecraft.wiki/images/End_Crystal_%28item%29_JE2_BE2.png?e1ecd"
     };
 
+    // TABELLA VALORE PUNTI PER TIER
+    const TIER_POINTS = {
+      "HT1": 60, "LT1": 50,
+      "HT2": 40, "LT2": 30,
+      "HT3": 20, "LT3": 10,
+      "HT4": 5,  "LT4": 3,
+      "HT5": 2,  "LT5": 1
+    };
+
     let playersData = [];
     let currentCategory = 'overall';
+
+    // Calcola i punti totali basandosi sui ruoli nel JSON
+    function calculatePlayerPoints(tiers) {
+      if (!tiers) return 0;
+      let total = 0;
+      for (const mode in tiers) {
+        const tier = tiers[mode];
+        total += TIER_POINTS[tier] || 0;
+      }
+      return total;
+    }
 
     // FUNZIONE DI CARICAMENTO DATI DA DATA.JSON
     async function fetchLiveData() {
       try {
-        // Aggiunge la data per evitare problemi di cache del browser
         const response = await fetch('data.json?v=' + new Date().getTime());
         if (response.ok) {
-          playersData = await response.json();
+          let rawData = await response.json();
+          
+          // Calcola i punti e ordina i giocatori dal più alto al più basso
+          playersData = rawData.map(p => {
+            p.points = calculatePlayerPoints(p.tiers);
+            return p;
+          }).sort((a, b) => b.points - a.points);
+
           renderContent();
         }
       } catch (err) {
@@ -449,7 +475,7 @@
       if (currentCategory === 'overall') {
         container.className = 'leaderboard-list';
         container.innerHTML = playersData.map((p, index) => {
-          const rankNum = p.rank || (index + 1);
+          const rankNum = index + 1; // Posizione calcolata automaticamente in base ai punti
           const subtitle = p.subtitle || "Combat Member";
           const points = p.points || 0;
           const region = p.region || "EU";
@@ -514,7 +540,7 @@
     // Carica subito i dati all'apertura della pagina
     fetchLiveData();
     
-    // Auto-Sync ogni 10 secondi per aggiornare automaticamente da Discord senza ricaricare la pagina
+    // Auto-Sync ogni 10 secondi
     setInterval(fetchLiveData, 10000);
   </script>
 </body>
