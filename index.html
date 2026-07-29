@@ -121,7 +121,6 @@
       transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
     }
 
-    /* HOVER SULLA CARD OVERALL (Effetto Evidenziatore MCTiers) */
     .player-card:hover {
       background-color: var(--card-bg-hover);
       border-color: #3f4d6d;
@@ -268,7 +267,7 @@
     .tier-subtext.t3 { color: var(--bronze); }
     .tier-subtext.t4, .tier-subtext.t5 { color: #9ca3af; }
 
-    /* SCHEDA GAMEMODES (Senza divisione testuale HT/LT) */
+    /* SCHEDA GAMEMODES */
     .tier-columns {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
@@ -343,47 +342,47 @@
       <img src="https://minecraft.wiki/images/Nether_Star_JE3_BE2.png" alt="Overall">
       <span>Overall</span>
     </button>
-    <button class="mode-btn" onclick="switchCategory('sword', this)">
+    <button class="mode-btn" onclick="switchCategory('Sword', this)">
       <img src="https://minecraft.wiki/images/Diamond_Sword_JE3_BE3.png?24296" alt="Sword">
       <span>Sword</span>
     </button>
-    <button class="mode-btn" onclick="switchCategory('axe', this)">
+    <button class="mode-btn" onclick="switchCategory('Axe', this)">
       <img src="https://minecraft.wiki/images/Diamond_Axe_JE3_BE3.png?99125" alt="Axe">
       <span>Axe</span>
     </button>
-    <button class="mode-btn" onclick="switchCategory('uhc', this)">
+    <button class="mode-btn" onclick="switchCategory('UHC', this)">
       <img src="https://minecraft.wiki/images/Golden_Apple_JE2_BE2.png?aa827" alt="UHC">
       <span>UHC</span>
     </button>
-    <button class="mode-btn" onclick="switchCategory('diapot', this)">
+    <button class="mode-btn" onclick="switchCategory('DiaPot', this)">
       <img src="https://minecraft.wiki/images/Splash_Potion_of_Healing_JE2.png?d45f1" alt="DiaPot">
       <span>DiaPot</span>
     </button>
-    <button class="mode-btn" onclick="switchCategory('nethpot', this)">
+    <button class="mode-btn" onclick="switchCategory('NethPot', this)">
       <img src="https://minecraft.wiki/images/Netherite_Sword_JE2_BE2.png?8e866" alt="NethPot">
       <span>NethPot</span>
     </button>
-    <button class="mode-btn" onclick="switchCategory('diasmp', this)">
+    <button class="mode-btn" onclick="switchCategory('DiaSMP', this)">
       <img src="https://minecraft.wiki/images/Chorus_Fruit_JE2_BE2.png?c8e41" alt="DiaSMP">
       <span>DiaSMP</span>
     </button>
-    <button class="mode-btn" onclick="switchCategory('smp', this)">
+    <button class="mode-btn" onclick="switchCategory('SMP', this)">
       <img src="https://minecraft.wiki/images/Shield_JE2_BE1.png?4837d" alt="SMP">
       <span>SMP</span>
     </button>
-    <button class="mode-btn" onclick="switchCategory('mace', this)">
+    <button class="mode-btn" onclick="switchCategory('Mace', this)">
       <img src="https://minecraft.wiki/images/Mace_JE1_BE1.png?90f67" alt="Mace">
       <span>Mace</span>
     </button>
-    <button class="mode-btn" onclick="switchCategory('spearmace', this)">
+    <button class="mode-btn" onclick="switchCategory('SpearMace', this)">
       <img src="https://minecraft.wiki/images/Netherite_Spear_JE1_BE2.png?8c3ba" alt="SpearMace">
       <span>SpearMace</span>
     </button>
-    <button class="mode-btn" onclick="switchCategory('cart', this)">
+    <button class="mode-btn" onclick="switchCategory('Cart', this)">
       <img src="https://minecraft.wiki/images/Minecart_with_TNT_%28item%29_JE2_BE2.png?61a90" alt="Cart">
       <span>Cart</span>
     </button>
-    <button class="mode-btn" onclick="switchCategory('endcrystal', this)">
+    <button class="mode-btn" onclick="switchCategory('Crystal', this)">
       <img src="https://minecraft.wiki/images/End_Crystal_%28item%29_JE2_BE2.png?e1ecd" alt="Crystal">
       <span>Crystal</span>
     </button>
@@ -393,56 +392,38 @@
 
   <script>
     const icons = {
-      sword: "https://minecraft.wiki/images/Diamond_Sword_JE3_BE3.png?24296",
-      axe: "https://minecraft.wiki/images/Diamond_Axe_JE3_BE3.png?99125",
-      uhc: "https://minecraft.wiki/images/Golden_Apple_JE2_BE2.png?aa827",
-      diapot: "https://minecraft.wiki/images/Splash_Potion_of_Healing_JE2.png?d45f1",
-      nethpot: "https://minecraft.wiki/images/Netherite_Sword_JE2_BE2.png?8e866",
-      diasmp: "https://minecraft.wiki/images/Chorus_Fruit_JE2_BE2.png?c8e41",
-      smp: "https://minecraft.wiki/images/Shield_JE2_BE1.png?4837d",
-      mace: "https://minecraft.wiki/images/Mace_JE1_BE1.png?90f67",
-      spearmace: "https://minecraft.wiki/images/Netherite_Spear_JE1_BE2.png?8c3ba",
-      cart: "https://minecraft.wiki/images/Minecart_with_TNT_%28item%29_JE2_BE2.png?61a90",
-      endcrystal: "https://minecraft.wiki/images/End_Crystal_%28item%29_JE2_BE2.png?e1ecd"
+      Sword: "https://minecraft.wiki/images/Diamond_Sword_JE3_BE3.png?24296",
+      Axe: "https://minecraft.wiki/images/Diamond_Axe_JE3_BE3.png?99125",
+      UHC: "https://minecraft.wiki/images/Golden_Apple_JE2_BE2.png?aa827",
+      DiaPot: "https://minecraft.wiki/images/Splash_Potion_of_Healing_JE2.png?d45f1",
+      NethPot: "https://minecraft.wiki/images/Netherite_Sword_JE2_BE2.png?8e866",
+      DiaSMP: "https://minecraft.wiki/images/Chorus_Fruit_JE2_BE2.png?c8e41",
+      SMP: "https://minecraft.wiki/images/Shield_JE2_BE1.png?4837d",
+      Mace: "https://minecraft.wiki/images/Mace_JE1_BE1.png?90f67",
+      SpearMace: "https://minecraft.wiki/images/Netherite_Spear_JE1_BE2.png?8c3ba",
+      Cart: "https://minecraft.wiki/images/Minecart_with_TNT_%28item%29_JE2_BE2.png?61a90",
+      Crystal: "https://minecraft.wiki/images/End_Crystal_%28item%29_JE2_BE2.png?e1ecd"
     };
 
-    // DATI BASE (Fallback locale se l'API non è ancora collegata)
-    let playersData = [
-      {
-        rank: 1, name: "Marlowww", title: "Combat Grandmaster", points: 450, region: "NA",
-        tiers: { diapot: "HT1", smp: "HT1", nethpot: "HT1", mace: "HT1", sword: "HT1", uhc: "LT1", cart: "HT5" }
-      },
-      {
-        rank: 2, name: "ItzRealMe", title: "Combat Master", points: 330, region: "NA",
-        tiers: { sword: "HT3", diapot: "HT1", smp: "HT1", uhc: "LT2", axe: "LT2" }
-      },
-      {
-        rank: 3, name: "coldified", title: "Combat Master", points: 326, region: "EU",
-        tiers: { diapot: "LT1", uhc: "HT1", smp: "HT1", sword: "LT1", axe: "LT1" }
-      },
-      {
-        rank: 15, name: "Spawnplayer", title: "Combat Ace", points: 152, region: "AS",
-        tiers: { sword: "LT2", axe: "HT3" }
-      }
-    ];
-
+    let playersData = [];
     let currentCategory = 'overall';
 
-    // FUNZIONE CARICAMENTO DATI DA API REMOTA (Integrazione Discord Bot)
+    // FUNZIONE DI CARICAMENTO DATI DA DATA.JSON
     async function fetchLiveData() {
       try {
-        // Sostituisci questo URL con il tuo endpoint API (es. JSONBin / Firebase / Server Node.js)
-        const response = await fetch('YOUR_JSON_API_ENDPOINT_HERE');
+        // Aggiunge la data per evitare problemi di cache del browser
+        const response = await fetch('data.json?v=' + new Date().getTime());
         if (response.ok) {
           playersData = await response.json();
           renderContent();
         }
       } catch (err) {
-        console.log("Utilizzo dati locali.");
+        console.error("Errore durante il caricamento di data.json:", err);
       }
     }
 
     function getTierClass(tierStr) {
+      if (!tierStr) return 't5';
       if (tierStr.includes('1')) return 't1';
       if (tierStr.includes('2')) return 't2';
       if (tierStr.includes('3')) return 't3';
@@ -460,45 +441,56 @@
     function renderContent() {
       const container = document.getElementById('content');
 
+      if (!playersData || playersData.length === 0) {
+        container.innerHTML = '<div style="text-align:center; padding: 40px; color: #8b9bb4; font-weight:600;">Caricamento giocatori in corso o nessun giocatore registrato...</div>';
+        return;
+      }
+
       if (currentCategory === 'overall') {
         container.className = 'leaderboard-list';
-        container.innerHTML = playersData.map(p => `
-          <div class="player-card rank-${p.rank <= 3 ? p.rank : 'other'}">
-            <div class="player-main-info">
-              <div class="rank-tag-box">
-                <span class="rank-num">${p.rank}.</span>
-                <img class="player-avatar" src="https://render.crafty.gg/3d/bust/${p.name}" alt="${p.name}">
-              </div>
-              <div class="player-details">
-                <h3>${p.name}</h3>
-                <div class="title-pts">${p.title} <span>(${p.points} points)</span></div>
-              </div>
-            </div>
+        container.innerHTML = playersData.map((p, index) => {
+          const rankNum = p.rank || (index + 1);
+          const subtitle = p.subtitle || "Combat Member";
+          const points = p.points || 0;
+          const region = p.region || "EU";
+          const tiers = p.tiers || {};
 
-            <div class="region-container">
-              <span class="region-tag ${p.region}">${p.region}</span>
-            </div>
-
-            <div class="tested-tiers-list">
-              ${Object.keys(p.tiers).map(mode => `
-                <div class="tier-badge-item">
-                  <div class="icon-circle">
-                    <img src="${icons[mode] || ''}" alt="${mode}">
-                  </div>
-                  <span class="tier-subtext ${getTierClass(p.tiers[mode])}">${p.tiers[mode]}</span>
+          return `
+            <div class="player-card rank-${rankNum <= 3 ? rankNum : 'other'}">
+              <div class="player-main-info">
+                <div class="rank-tag-box">
+                  <span class="rank-num">${rankNum}.</span>
+                  <img class="player-avatar" src="https://render.crafty.gg/3d/bust/${p.name}" alt="${p.name}">
                 </div>
-              `).join('')}
+                <div class="player-details">
+                  <h3>${p.name}</h3>
+                  <div class="title-pts">${subtitle} <span>(${points} pts)</span></div>
+                </div>
+              </div>
+
+              <div class="region-container">
+                <span class="region-tag ${region}">${region}</span>
+              </div>
+
+              <div class="tested-tiers-list">
+                ${Object.keys(tiers).map(mode => `
+                  <div class="tier-badge-item">
+                    <div class="icon-circle">
+                      <img src="${icons[mode] || ''}" alt="${mode}">
+                    </div>
+                    <span class="tier-subtext ${getTierClass(tiers[mode])}">${tiers[mode]}</span>
+                  </div>
+                `).join('')}
+              </div>
             </div>
-          </div>
-        `).join('');
+          `;
+        }).join('');
       } else {
-        // PER OGNI GAMEMODES: HT e LT raggruppati senza scritte divaganti
         container.className = 'tier-columns';
         
         container.innerHTML = [1, 2, 3, 4, 5].map(tierNum => {
-          // Prendi prima gli HT e poi gli LT del tier selezionato
-          const htPlayers = playersData.filter(p => p.tiers[currentCategory] === `HT${tierNum}`);
-          const ltPlayers = playersData.filter(p => p.tiers[currentCategory] === `LT${tierNum}`);
+          const htPlayers = playersData.filter(p => p.tiers && p.tiers[currentCategory] === `HT${tierNum}`);
+          const ltPlayers = playersData.filter(p => p.tiers && p.tiers[currentCategory] === `LT${tierNum}`);
           const allTierPlayers = [...htPlayers, ...ltPlayers];
 
           return `
@@ -519,8 +511,8 @@
       }
     }
 
-    // Inizializzazione
-    renderContent();
+    // Carica subito i dati all'apertura della pagina
+    fetchLiveData();
     
     // Auto-Sync ogni 10 secondi per aggiornare automaticamente da Discord senza ricaricare la pagina
     setInterval(fetchLiveData, 10000);
