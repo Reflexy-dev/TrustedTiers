@@ -1,13 +1,11 @@
 [
     {
-        "name": "WeReflexy",
+        "name": "LT4",
         "region": "EU",
         "subtitle": "Combat Member",
         "discord_id": "1438185040310697995",
         "tiers": {
-            "Cart": "LT3",
-            "Axe": "HT4",
-            "Sword": "LT3"
+            "Crystal": "LT3"
         }
     }
 ]
