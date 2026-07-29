@@ -30,6 +30,8 @@ active_testers = {gm: None for gm in GAMEMODES}
 active_high_testers = {gm: None for gm in GAMEMODES}
 
 cooldowns = {}
+saved_mc_names = {}   # <--- Add this
+saved_regions = {}    # <--- Add this
 CATEGORY_NAME = "🎯Tierlist"
 
 TIER_ORDER = [
@@ -75,19 +77,9 @@ def update_json_file(guild: discord.Guild):
                         temp_tiers[gm] = t  
                                 
         if temp_tiers:
-            player_region = "EU"
-            player_mc_name = member.display_name
-            for gm_check in GAMEMODES:
-                for p in queues.get(gm_check, []):
-                    if p['user_id'] == member.id:
-                        player_region = p.get('region', 'EU')
-                        if p.get('mc_name'):
-                            player_mc_name = p['mc_name']
-                for p in high_queues.get(gm_check, []):
-                    if p['user_id'] == member.id:
-                        player_region = p.get('region', 'EU')
-                        if p.get('mc_name'):
-                            player_mc_name = p['mc_name']
+            # Prende il nick salvato in memoria, altrimenti fallback su Discord name
+            player_mc_name = saved_mc_names.get(member.id, member.display_name)
+            player_region = saved_regions.get(member.id, "EU")
 
             players_data.append({
                 "name": player_mc_name,
