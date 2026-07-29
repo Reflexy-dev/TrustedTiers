@@ -105,15 +105,17 @@ def update_json_file(guild: discord.Guild):
                 "tiers": temp_tiers
             })
             
-    GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-    REPO_NAME = os.getenv("GITHUB_REPO")
-    FILE_PATH = "data.json"
-    
+    # 1. SALVATAGGIO LOCALE SU RENDER
     try:
         with open("data.json", "w", encoding="utf-8") as f:
             json.dump(players_data, f, indent=4, ensure_ascii=False)
     except Exception as e:
         print(f"Errore salvataggio locale data.json: {e}")
+
+    # 2. SALVATAGGIO SU GITHUB (Pulsante e Sync automatico)
+    GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+    REPO_NAME = os.getenv("GITHUB_REPO")
+    FILE_PATH = "data.json"
 
     if GITHUB_TOKEN and REPO_NAME:
         try:
