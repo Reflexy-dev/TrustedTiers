@@ -3,177 +3,419 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Minecraft Tierlist</title>
+  <title>WeReflexy - Leaderboard</title>
   <style>
     :root {
-      --bg-dark: #0f1219;
-      --card-bg: #181d28;
-      --gold: #ffd700;
-      --silver: #c0c0c0;
-      --bronze: #cd7f32;
+      --bg-dark: #0b0e14;
+      --card-bg: #151922;
+      --card-border: #232a3b;
+      --gold: #ffbe2e;
+      --silver: #b0c0d0;
+      --bronze: #d97736;
+      --accent-blue: #5865f2;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
     }
 
     body {
       background-color: var(--bg-dark);
-      color: white;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      margin: 0;
-      padding: 20px;
+      color: #ffffff;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      padding: 25px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+    }
+
+    /* HEADER & TITLE */
+    header {
+      width: 100%;
+      max-width: 1100px;
+      margin-bottom: 25px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .brand-title {
+      font-size: 2rem;
+      font-weight: 800;
+      letter-spacing: 1px;
+      background: linear-gradient(135deg, #ffffff 0%, #a5b4fc 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      text-transform: uppercase;
     }
 
     /* BARRA CATEGORIE (GAMEMODES) */
     .nav-modes {
+      width: 100%;
+      max-width: 1100px;
       display: flex;
-      gap: 10px;
+      gap: 8px;
       overflow-x: auto;
-      padding-bottom: 10px;
-      margin-bottom: 30px;
+      padding: 5px 5px 15px 5px;
+      margin-bottom: 25px;
+      scrollbar-width: thin;
+      scrollbar-color: #232a3b transparent;
     }
 
     .mode-btn {
       background: var(--card-bg);
-      border: 1px solid #2a3245;
-      color: #a0aabf;
-      padding: 10px 15px;
-      border-radius: 8px;
+      border: 1px solid var(--card-border);
+      color: #8b9bb4;
+      padding: 10px 16px;
+      border-radius: 10px;
       cursor: pointer;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 5px;
-      transition: all 0.3s ease;
+      gap: 6px;
+      font-weight: 600;
+      font-size: 0.85rem;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      min-width: 80px;
+      flex-shrink: 0;
     }
 
     .mode-btn img {
-      width: 24px;
-      height: 24px;
+      width: 28px;
+      height: 28px;
+      object-fit: contain;
+      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
     }
 
-    .mode-btn.active, .mode-btn:hover {
-      border-color: #5865f2;
-      color: white;
-      box-shadow: 0 0 10px rgba(88, 101, 242, 0.4);
+    .mode-btn:hover {
+      background: #1c2230;
+      color: #ffffff;
+      border-color: #3b4760;
+      transform: translateY(-2px);
     }
 
-    /* PODI LUMINOSI (OVERALL) */
-    .leaderboard {
+    .mode-btn.active {
+      background: #1e2638;
+      border-color: var(--accent-blue);
+      color: #ffffff;
+      box-shadow: 0 0 15px rgba(88, 101, 242, 0.35);
+    }
+
+    /* CONTENITORE PRINCIPALE */
+    #content {
+      width: 100%;
+      max-width: 1100px;
+    }
+
+    /* LAYOUT OVERALL */
+    .leaderboard-list {
       display: flex;
       flex-direction: column;
-      gap: 15px;
-      max-width: 900px;
-      margin: 0 auto;
+      gap: 12px;
     }
 
     .player-card {
       background: var(--card-bg);
-      border-radius: 10px;
-      padding: 15px;
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 12px 20px;
       display: flex;
       align-items: center;
-      gap: 20px;
+      justify-content: space-between;
       position: relative;
+      transition: all 0.3s ease;
       overflow: hidden;
     }
 
-    /* Glow / Scia di illuminazione per i podi */
-    .player-card.rank-1 {
-      border-left: 5px solid var(--gold);
-      box-shadow: -5px 0 20px rgba(255, 215, 0, 0.3);
-    }
-    .player-card.rank-2 {
-      border-left: 5px solid var(--silver);
-      box-shadow: -5px 0 20px rgba(192, 192, 192, 0.3);
-    }
-    .player-card.rank-3 {
-      border-left: 5px solid var(--bronze);
-      box-shadow: -5px 0 20px rgba(205, 127, 50, 0.3);
+    .player-info {
+      display: flex;
+      align-items: center;
+      gap: 20px;
     }
 
-    /* GRIGLIA TIER (SELEZIONANDO UNA GAMEMODE) */
-    .tier-columns {
+    .rank-badge {
+      font-size: 1.4rem;
+      font-weight: 900;
+      width: 45px;
+      height: 45px;
       display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      background: rgba(255,255,255,0.05);
+      color: #8b9bb4;
+    }
+
+    .player-avatar {
+      width: 50px;
+      height: 50px;
+      border-radius: 8px;
+      object-fit: cover;
+      background: rgba(0,0,0,0.3);
+    }
+
+    .player-details h3 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #ffffff;
+    }
+
+    .player-details p {
+      font-size: 0.85rem;
+      color: #6c7a93;
+      margin-top: 2px;
+    }
+
+    .region-tag {
+      background: #e11d48;
+      color: white;
+      font-weight: 800;
+      font-size: 0.75rem;
+      padding: 4px 10px;
+      border-radius: 6px;
+    }
+
+    /* SCIE LUMINOSE PODI (1°, 2°, 3°) */
+    .player-card.rank-1 {
+      border-color: rgba(255, 190, 46, 0.6);
+      box-shadow: 0 0 20px rgba(255, 190, 46, 0.25), inset 4px 0 0 var(--gold);
+    }
+    .player-card.rank-1 .rank-badge {
+      background: var(--gold);
+      color: #000;
+    }
+
+    .player-card.rank-2 {
+      border-color: rgba(176, 192, 208, 0.6);
+      box-shadow: 0 0 20px rgba(176, 192, 208, 0.2), inset 4px 0 0 var(--silver);
+    }
+    .player-card.rank-2 .rank-badge {
+      background: var(--silver);
+      color: #000;
+    }
+
+    .player-card.rank-3 {
+      border-color: rgba(217, 119, 54, 0.6);
+      box-shadow: 0 0 20px rgba(217, 119, 54, 0.2), inset 4px 0 0 var(--bronze);
+    }
+    .player-card.rank-3 .rank-badge {
+      background: var(--bronze);
+      color: #fff;
+    }
+
+    /* LAYOUT GAMEMODES (TIER COLUMNS) */
+    .tier-columns {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
       gap: 15px;
-      overflow-x: auto;
+      width: 100%;
     }
 
     .tier-col {
       background: var(--card-bg);
-      flex: 1;
-      min-width: 180px;
-      border-radius: 8px;
-      padding: 10px;
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
     }
 
     .tier-header {
       text-align: center;
-      padding: 8px;
-      font-weight: bold;
-      border-radius: 5px;
-      margin-bottom: 10px;
+      padding: 10px;
+      font-weight: 800;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
     }
 
-    .t1 { background: rgba(255, 215, 0, 0.2); color: var(--gold); border: 1px solid var(--gold); box-shadow: 0 0 10px rgba(255, 215, 0, 0.2); }
-    .t2 { background: rgba(192, 192, 192, 0.2); color: var(--silver); border: 1px solid var(--silver); }
-    .t3 { background: rgba(205, 127, 50, 0.2); color: var(--bronze); border: 1px solid var(--bronze); }
+    .t1 { background: rgba(255, 190, 46, 0.15); color: var(--gold); border: 1px solid var(--gold); box-shadow: 0 0 10px rgba(255, 190, 46, 0.2); }
+    .t2 { background: rgba(176, 192, 208, 0.15); color: var(--silver); border: 1px solid var(--silver); }
+    .t3 { background: rgba(217, 119, 54, 0.15); color: var(--bronze); border: 1px solid var(--bronze); }
+    .t4 { background: rgba(88, 101, 242, 0.15); color: #818cf8; border: 1px solid #5865f2; }
+    .t5 { background: rgba(255, 255, 255, 0.05); color: #94a3b8; border: 1px solid #334155; }
+
+    .tier-player-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px;
+      background: rgba(255,255,255,0.02);
+      border-radius: 6px;
+    }
+
+    .tier-player-item img {
+      width: 32px;
+      height: 32px;
+      border-radius: 4px;
+    }
+
+    .tier-player-item span {
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
   </style>
 </head>
 <body>
 
-  <!-- NAVIGAZIONE MODALITÀ -->
+  <!-- HEADER -->
+  <header>
+    <div class="brand-title">WeReflexy</div>
+  </header>
+
+  <!-- GAMEMODE NAVBAR -->
   <div class="nav-modes">
-    <button class="mode-btn active" onclick="switchMode('overall')">
+    <button class="mode-btn active" onclick="switchCategory('overall', this)">
       <img src="https://minecraft.wiki/images/Nether_Star_JE3_BE2.png" alt="Overall">
       <span>Overall</span>
     </button>
-    <button class="mode-btn" onclick="switchMode('sword')">
+    <button class="mode-btn" onclick="switchCategory('sword', this)">
       <img src="https://minecraft.wiki/images/Diamond_Sword_JE3_BE3.png?24296" alt="Sword">
       <span>Sword</span>
     </button>
-    <button class="mode-btn" onclick="switchMode('axe')">
+    <button class="mode-btn" onclick="switchCategory('axe', this)">
       <img src="https://minecraft.wiki/images/Diamond_Axe_JE3_BE3.png?99125" alt="Axe">
       <span>Axe</span>
     </button>
-    <!-- Aggiungi qui gli altri pulsanti con i link che mi hai fornito -->
+    <button class="mode-btn" onclick="switchCategory('uhc', this)">
+      <img src="https://minecraft.wiki/images/Golden_Apple_JE2_BE2.png?aa827" alt="UHC">
+      <span>UHC</span>
+    </button>
+    <button class="mode-btn" onclick="switchCategory('diapot', this)">
+      <img src="https://minecraft.wiki/images/Splash_Potion_of_Healing_JE2.png?d45f1" alt="DiaPot">
+      <span>DiaPot</span>
+    </button>
+    <button class="mode-btn" onclick="switchCategory('nethpot', this)">
+      <img src="https://minecraft.wiki/images/Netherite_Sword_JE2_BE2.png?8e866" alt="NethPot">
+      <span>NethPot</span>
+    </button>
+    <button class="mode-btn" onclick="switchCategory('diasmp', this)">
+      <img src="https://minecraft.wiki/images/Chorus_Fruit_JE2_BE2.png?c8e41" alt="DiaSMP">
+      <span>DiaSMP</span>
+    </button>
+    <button class="mode-btn" onclick="switchCategory('smp', this)">
+      <img src="https://minecraft.wiki/images/Shield_JE2_BE1.png?4837d" alt="SMP">
+      <span>SMP</span>
+    </button>
+    <button class="mode-btn" onclick="switchCategory('mace', this)">
+      <img src="https://minecraft.wiki/images/Mace_JE1_BE1.png?90f67" alt="Mace">
+      <span>Mace</span>
+    </button>
+    <button class="mode-btn" onclick="switchCategory('spearmace', this)">
+      <img src="https://minecraft.wiki/images/Netherite_Spear_JE1_BE2.png?8c3ba" alt="SpearMace">
+      <span>SpearMace</span>
+    </button>
+    <button class="mode-btn" onclick="switchCategory('cart', this)">
+      <img src="https://minecraft.wiki/images/Minecart_with_TNT_%28item%29_JE2_BE2.png?61a90" alt="Cart">
+      <span>Cart</span>
+    </button>
+    <button class="mode-btn" onclick="switchCategory('endcrystal', this)">
+      <img src="https://minecraft.wiki/images/End_Crystal_%28item%29_JE2_BE2.png?e1ecd" alt="Crystal">
+      <span>Crystal</span>
+    </button>
   </div>
 
-  <!-- CONTENUTO DINAMICO -->
-  <div id="content" class="leaderboard">
-    <!-- Qui JavaScript caricherà i player o i Tier -->
-  </div>
+  <!-- DYNAMIC CONTENT -->
+  <div id="content"></div>
 
   <script>
-    // Esempio dati mockup (in seguito sostituito dalle chiamate al tuo Bot/DB)
-    const overallData = [
-      { rank: 1, name: "Marlowww", points: "450 pts", region: "NA" },
-      { rank: 2, name: "ItzRealMe", points: "330 pts", region: "NA" },
-      { rank: 3, name: "coldified", points: "326 pts", region: "EU" }
+    // Dati di Esempio (Mock Data)
+    const mockOverall = [
+      { rank: 1, name: "Marlowww", points: 450, region: "NA" },
+      { rank: 2, name: "ItzRealMe", points: 330, region: "NA" },
+      { rank: 3, name: "coldified", points: 326, region: "EU" },
+      { rank: 4, name: "WeReflexy", points: 290, region: "EU" }
     ];
 
-    function switchMode(mode) {
+    const mockTiers = {
+      tier1: ["WeReflexy", "K1RBE"],
+      tier2: ["Snoowwyyyyyy", "amacq"],
+      tier3: ["_MannerL3gendOP", "BlightMCYT"],
+      tier4: ["QuadridBoost", "ewhu"],
+      tier5: ["ItzJacobXD", "1105sldjfrnf"]
+    };
+
+    function switchCategory(category, btnElement) {
+      // Aggiorna la classe attiva sui pulsanti
+      document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
+      btnElement.classList.add('active');
+
       const container = document.getElementById('content');
-      if (mode === 'overall') {
-        container.className = 'leaderboard';
-        container.innerHTML = overallData.map(p => `
-          <div class="player-card rank-${p.rank}">
-            <h2>#${p.rank}</h2>
-            <div>
-              <h3>${p.name}</h3>
-              <small>${p.points}</small>
+
+      if (category === 'overall') {
+        container.className = 'leaderboard-list';
+        container.innerHTML = mockOverall.map(p => `
+          <div class="player-card rank-${p.rank <= 3 ? p.rank : 'other'}">
+            <div class="player-info">
+              <div class="rank-badge">#${p.rank}</div>
+              <img class="player-avatar" src="https://render.crafty.gg/3d/bust/${p.name}" alt="${p.name}">
+              <div class="player-details">
+                <h3>${p.name}</h3>
+                <p>${p.points} pts</p>
+              </div>
             </div>
+            <span class="region-tag">${p.region}</span>
           </div>
         `).join('');
       } else {
         container.className = 'tier-columns';
         container.innerHTML = `
-          <div class="tier-col"><div class="tier-header t1">Tier 1</div><div>Player A</div></div>
-          <div class="tier-col"><div class="tier-header t2">Tier 2</div><div>Player B</div></div>
-          <div class="tier-col"><div class="tier-header t3">Tier 3</div><div>Player C</div></div>
+          <div class="tier-col">
+            <div class="tier-header t1">Tier 1</div>
+            ${mockTiers.tier1.map(p => `
+              <div class="tier-player-item">
+                <img src="https://render.crafty.gg/3d/bust/${p}" alt="${p}">
+                <span>${p}</span>
+              </div>
+            `).join('')}
+          </div>
+          <div class="tier-col">
+            <div class="tier-header t2">Tier 2</div>
+            ${mockTiers.tier2.map(p => `
+              <div class="tier-player-item">
+                <img src="https://render.crafty.gg/3d/bust/${p}" alt="${p}">
+                <span>${p}</span>
+              </div>
+            `).join('')}
+          </div>
+          <div class="tier-col">
+            <div class="tier-header t3">Tier 3</div>
+            ${mockTiers.tier3.map(p => `
+              <div class="tier-player-item">
+                <img src="https://render.crafty.gg/3d/bust/${p}" alt="${p}">
+                <span>${p}</span>
+              </div>
+            `).join('')}
+          </div>
+          <div class="tier-col">
+            <div class="tier-header t4">Tier 4</div>
+            ${mockTiers.tier4.map(p => `
+              <div class="tier-player-item">
+                <img src="https://render.crafty.gg/3d/bust/${p}" alt="${p}">
+                <span>${p}</span>
+              </div>
+            `).join('')}
+          </div>
+          <div class="tier-col">
+            <div class="tier-header t5">Tier 5</div>
+            ${mockTiers.tier5.map(p => `
+              <div class="tier-player-item">
+                <img src="https://render.crafty.gg/3d/bust/${p}" alt="${p}">
+                <span>${p}</span>
+              </div>
+            `).join('')}
+          </div>
         `;
       }
     }
 
-    // Carica Overall all'inizio
-    switchMode('overall');
+    // Caricamento iniziale
+    switchCategory('overall', document.querySelector('.mode-btn.active'));
   </script>
 </body>
 </html>
