@@ -968,11 +968,26 @@ async def on_ready():
 import threading
 from http.server import SimpleHTTPRequestHandler, HTTPServer
 
-# --- MINI SERVER WEB INTEGRATO PER IL SITO ---
+# --- MINI SERVER WEB INTEGRATO PER IL SITO (PERSONALIZZATO) ---
+class CustomHandler(SimpleHTTPRequestHandler):
+    def do_GET(self):
+        # Se qualcuno richiede /data.json, lo legge fresco dal disco
+        if self.path.startswith('/data.json'):
+            if os.path.exists('data.json'):
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                with open('data.json', 'rb') as f:
+                    self.wfile.write(f.read())
+                return
+        # Per tutto il resto, usa il server standard
+        super().do_GET()
+
 def run_web_server():
     port = int(os.environ.get("PORT", 8080))
     server_address = ('', port)
-    httpd = HTTPServer(server_address, SimpleHTTPRequestHandler)
+    httpd = HTTPServer(server_address, CustomHandler)
     print(f"Sito web avviato sulla porta {port}")
     httpd.serve_forever()
 
