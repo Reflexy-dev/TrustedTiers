@@ -1,1 +1,11 @@
-[]
+[
+    {
+        "name": "ReflexMC",
+        "region": "EU",
+        "subtitle": "Combat Member",
+        "discord_id": "1438185040310697995",
+        "tiers": {
+            "Axe": "HT4"
+        }
+    }
+]
