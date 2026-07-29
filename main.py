@@ -30,8 +30,8 @@ active_testers = {gm: None for gm in GAMEMODES}
 active_high_testers = {gm: None for gm in GAMEMODES}
 
 cooldowns = {}
-saved_mc_names = {}   # Minecraft names storage
-saved_regions = {}    # Regions storage
+saved_mc_names = {}
+saved_regions = {}
 CATEGORY_NAME = "🎯Tierlist"
 
 TIER_ORDER = [
@@ -39,96 +39,6 @@ TIER_ORDER = [
 ]
 
 HIGH_TIERS_QUEUE = ["LT3", "HT3", "LT2", "HT2", "LT1", "HT1"]
-
-STATE_FILE = "bot_state.json"
-
-# --- PERSISTENZA STATO LOCALE (FILE JSON) ---
-def save_state_to_file():
-    """Salva lo stato di code e tester su file json per non perderli al riavvio"""
-    try:
-        data = {
-            "queues": {
-                gm: [
-                    {
-                        "user_id": p["user_id"],
-                        "mc_name": p["mc_name"],
-                        "region": p["region"],
-                        "joined_at": p["joined_at"].isoformat()
-                    }
-                    for p in q_list
-                ]
-                for gm, q_list in queues.items()
-            },
-            "high_queues": {
-                gm: [
-                    {
-                        "user_id": p["user_id"],
-                        "mc_name": p["mc_name"],
-                        "region": p["region"],
-                        "joined_at": p["joined_at"].isoformat()
-                    }
-                    for p in q_list
-                ]
-                for gm, q_list in high_queues.items()
-            },
-            "active_testers": active_testers,
-            "active_high_testers": active_high_testers,
-            "saved_mc_names": saved_mc_names,
-            "saved_regions": saved_regions,
-            "cooldowns": {str(uid): dt.isoformat() for uid, dt in cooldowns.items()}
-        }
-        with open(STATE_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=4)
-    except Exception as e:
-        print(f"❌ Errore durante il salvataggio dello stato: {e}")
-
-def load_state_from_file():
-    """Carica lo stato di code e tester dal file json all'avvio"""
-    global queues, high_queues, active_testers, active_high_testers, saved_mc_names, saved_regions, cooldowns
-    if not os.path.exists(STATE_FILE):
-        return
-
-    try:
-        with open(STATE_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-
-        for gm, q_list in data.get("queues", {}).items():
-            if gm in queues:
-                queues[gm] = [
-                    {
-                        "user_id": p["user_id"],
-                        "mc_name": p["mc_name"],
-                        "region": p["region"],
-                        "joined_at": datetime.datetime.fromisoformat(p["joined_at"])
-                    }
-                    for p in q_list
-                ]
-
-        for gm, q_list in data.get("high_queues", {}).items():
-            if gm in high_queues:
-                high_queues[gm] = [
-                    {
-                        "user_id": p["user_id"],
-                        "mc_name": p["mc_name"],
-                        "region": p["region"],
-                        "joined_at": datetime.datetime.fromisoformat(p["joined_at"])
-                    }
-                    for p in q_list
-                ]
-
-        active_testers.update(data.get("active_testers", {}))
-        active_high_testers.update(data.get("active_high_testers", {}))
-        
-        saved_mc_names.update({int(k): v for k, v in data.get("saved_mc_names", {}).items()})
-        saved_regions.update({int(k): v for k, v in data.get("saved_regions", {}).items()})
-        
-        cooldowns.clear()
-        for uid, dt_str in data.get("cooldowns", {}).items():
-            cooldowns[int(uid)] = datetime.datetime.fromisoformat(dt_str)
-
-        print("✅ Stato del bot ripristinato dal file di salvataggio!")
-    except Exception as e:
-        print(f"❌ Errore durante il caricamento dello stato: {e}")
 
 # --- FUNZIONI UTILITÀ & RANK ---
 def get_current_rank(member: discord.Member, gamemode: str) -> str:
@@ -178,12 +88,14 @@ def update_json_file(guild: discord.Guild):
                 "tiers": temp_tiers
             })
             
+    # 1. Salvataggio locale
     try:
         with open("data.json", "w", encoding="utf-8") as f:
             json.dump(players_data, f, indent=4, ensure_ascii=False)
     except Exception as e:
         print(f"Errore salvataggio locale data.json: {e}")
 
+    # 2. Sync automatico GitHub
     GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
     REPO_NAME = os.getenv("GITHUB_REPO")
     FILE_PATH = "data.json"
@@ -262,7 +174,6 @@ def generate_high_queue_embed(gamemode: str):
     return embed
 
 async def update_board_message(guild, gamemode):
-    save_state_to_file()
     waitlist_channel = discord.utils.get(guild.text_channels, name=f"waitlist-{gamemode.lower()}")
     if waitlist_channel:
         async for message in waitlist_channel.history(limit=10):
@@ -271,7 +182,6 @@ async def update_board_message(guild, gamemode):
                 break
 
 async def update_high_board_message(guild, gamemode):
-    save_state_to_file()
     waitlist_channel = discord.utils.get(guild.text_channels, name=f"high-waitlist-{gamemode.lower()}")
     if waitlist_channel:
         async for message in waitlist_channel.history(limit=10):
@@ -279,37 +189,17 @@ async def update_high_board_message(guild, gamemode):
                 await message.edit(embed=generate_high_queue_embed(gamemode), view=HighStaffControlView(gamemode))
                 break
 
-# --- TASK TIMEOUT CODE, INATTIVITÀ E VERIFICA TESTER ---
+# --- TASK TIMEOUT CODE ---
 @tasks.loop(minutes=1)
 async def check_queue_timeouts():
     now = datetime.datetime.utcnow()
-    guild = bot.guilds[0] if bot.guilds else None
-
     for gm in GAMEMODES:
-        # 1. VERIFICA VALIDITÀ TESTER ATTIVI (Rimuove tester se non esistono più o non hanno più il ruolo)
-        if guild:
-            # Tester Standard
-            if active_testers[gm]:
-                member = guild.get_member(active_testers[gm])
-                tester_role = discord.utils.get(guild.roles, name=f"Tester {gm}")
-                if not member or (tester_role and tester_role not in member.roles and not member.guild_permissions.administrator):
-                    active_testers[gm] = None
-                    await update_board_message(guild, gm)
-
-            # Tester High
-            if active_high_testers[gm]:
-                member = guild.get_member(active_high_testers[gm])
-                tester_role = discord.utils.get(guild.roles, name=f"Tester {gm}")
-                if not member or (tester_role and tester_role not in member.roles and not member.guild_permissions.administrator):
-                    active_high_testers[gm] = None
-                    await update_high_board_message(guild, gm)
-
-        # 2. Timeout Coda Standard (1 ora)
         updated = False
         new_queue = []
         for player in queues[gm]:
             if (now - player['joined_at']).total_seconds() > 3600:
                 updated = True
+                guild = bot.guilds[0] if bot.guilds else None
                 if guild:
                     member = guild.get_member(player['user_id'])
                     if member:
@@ -320,15 +210,15 @@ async def check_queue_timeouts():
                 new_queue.append(player)
         if updated:
             queues[gm] = new_queue
-            if guild:
+            for guild in bot.guilds:
                 await update_board_message(guild, gm)
 
-        # 3. Timeout Coda High (1 ora)
         h_updated = False
         new_h_queue = []
         for player in high_queues[gm]:
             if (now - player['joined_at']).total_seconds() > 3600:
                 h_updated = True
+                guild = bot.guilds[0] if bot.guilds else None
                 if guild:
                     member = guild.get_member(player['user_id'])
                     if member:
@@ -339,24 +229,8 @@ async def check_queue_timeouts():
                 new_h_queue.append(player)
         if h_updated:
             high_queues[gm] = new_h_queue
-            if guild:
+            for guild in bot.guilds:
                 await update_high_board_message(guild, gm)
-
-    # 4. Controllo inattività stanze match (30 minuti di inattività tester)
-    if guild:
-        for channel in guild.text_channels:
-            if channel.name.startswith("match-") or channel.name.startswith("high-match-"):
-                try:
-                    last_msg = None
-                    async for msg in channel.history(limit=1):
-                        last_msg = msg
-                    if last_msg:
-                        delta = (datetime.datetime.utcnow() - last_msg.created_at.replace(tzinfo=None)).total_seconds()
-                        if delta > 1800: # 30 minuti
-                            await channel.send("⚠️ Match room closed due to 30 minutes of inactivity.")
-                            await channel.delete()
-                except Exception:
-                    pass
 
 @check_queue_timeouts.before_loop
 async def before_timeouts():
@@ -377,7 +251,7 @@ class MinecraftNameModal(discord.ui.Modal):
         user_id = interaction.user.id
 
         saved_mc_names[user_id] = self.mc_name.value.strip()
-        saved_regions[user_id] = self.region.upper().strip()
+        saved_regions[user_id] = self.region.value.upper().strip()
 
         if user_id in cooldowns and datetime.datetime.utcnow() < cooldowns[user_id]:
             remaining = (cooldowns[user_id] - datetime.datetime.utcnow()).days + 1
@@ -643,9 +517,9 @@ class HighTierResultModal(discord.ui.Modal):
             try: await match_channel.delete()
             except Exception: pass
 
-# --- CONTROLLI NELLA STANZA MATCH (PULSANTE PERSISTENTE CON TIMEOUT=NONE) ---
+# --- CONTROLLI NELLA STANZA MATCH (PULSANTE) ---
 class TesterPrivateEvalView(discord.ui.View):
-    def __init__(self, player_member=None, mc_name=None, gamemode=None, channel_id=None, region=None, is_high=False):
+    def __init__(self, player_member, mc_name, gamemode, channel_id, region, is_high=False):
         super().__init__(timeout=None)
         self.player_member = player_member
         self.mc_name = mc_name
@@ -654,51 +528,19 @@ class TesterPrivateEvalView(discord.ui.View):
         self.region = region
         self.is_high = is_high
 
-        # Aggiunti custom_id univoci per fare funzionare i pulsanti anche dopo i riavvii del bot
         if self.is_high:
-            btn = discord.ui.Button(label="🔥 HighTierTest Result", style=discord.ButtonStyle.blurple, custom_id="persistent_high_eval_btn")
+            btn = discord.ui.Button(label="🔥 HighTierTest Result", style=discord.ButtonStyle.blurple, custom_id="high_eval_btn")
             btn.callback = self.high_test_callback
             self.add_item(btn)
         else:
-            btn = discord.ui.Button(label="🟢 TierTest (LT5 - LT3)", style=discord.ButtonStyle.green, custom_id="persistent_std_eval_btn")
+            btn = discord.ui.Button(label="🟢 TierTest (LT5 - LT3)", style=discord.ButtonStyle.green, custom_id="std_eval_btn")
             btn.callback = self.std_test_callback
             self.add_item(btn)
 
     async def std_test_callback(self, interaction: discord.Interaction):
-        # Se viene riletto dopo un riavvio e le informazioni sull mebro mancavano, le ricava dalla stanza
-        if not self.player_member:
-            channel = interaction.channel
-            for member in channel.members:
-                if not member.bot and member != interaction.user:
-                    self.player_member = member
-                    break
-            self.mc_name = saved_mc_names.get(self.player_member.id if self.player_member else 0, "Unknown")
-            self.region = saved_regions.get(self.player_member.id if self.player_member else 0, "EU")
-            self.gamemode = channel.name.split("-")[-1].capitalize()
-            self.channel_id = channel.id
-
-        if not self.player_member:
-            await interaction.response.send_message("❌ Player not found for evaluation.", ephemeral=True)
-            return
-
         await interaction.response.send_modal(StandardResultModal(self.player_member, self.mc_name, self.gamemode, self.channel_id, self.region))
 
     async def high_test_callback(self, interaction: discord.Interaction):
-        if not self.player_member:
-            channel = interaction.channel
-            for member in channel.members:
-                if not member.bot and member != interaction.user:
-                    self.player_member = member
-                    break
-            self.mc_name = saved_mc_names.get(self.player_member.id if self.player_member else 0, "Unknown")
-            self.region = saved_regions.get(self.player_member.id if self.player_member else 0, "EU")
-            self.gamemode = channel.name.split("-")[-1].capitalize()
-            self.channel_id = channel.id
-
-        if not self.player_member:
-            await interaction.response.send_message("❌ Player not found for evaluation.", ephemeral=True)
-            return
-
         await interaction.response.send_modal(HighTierResultModal(self.player_member, self.mc_name, self.gamemode, self.channel_id, self.region))
 
 # --- VIEWS CONTROLLO STAFF (STANDARD & HIGH) ---
@@ -728,21 +570,20 @@ class StaffControlView(discord.ui.View):
             await interaction.response.send_message("❌ The queue is empty!", ephemeral=True)
             return
 
-        guild = interaction.guild
-
-        # CHECK: Verifico se il tester ha già un canale match aperto in questo gamemode
-        for ch in guild.text_channels:
-            if ch.name.startswith(f"match-") and ch.name.endswith(f"-{self.gamemode.lower()}"):
-                if str(interaction.user.id) in str(ch.overwrites):
-                    await interaction.response.send_message(f"❌ You already have an active match channel for **{self.gamemode}**! Finish it first.", ephemeral=True)
-                    return
-
         current_player = queues[self.gamemode][0]
+        guild = interaction.guild
         player_member = guild.get_member(current_player['user_id'])
         
         if not player_member:
             queues[self.gamemode].pop(0)
             await interaction.response.edit_message(embed=generate_queue_embed(self.gamemode), view=self)
+            return
+
+        # CONTROLLO CANALE DUPLICATO: verifica se esiste già un canale match per questo giocatore/gamemode
+        expected_channel_name = f"match-{player_member.name}-{self.gamemode.lower()}".replace(" ", "-").lower()
+        existing_channel = discord.utils.get(guild.text_channels, name=expected_channel_name)
+        if existing_channel:
+            await interaction.response.send_message(f"❌ A match channel already exists for this player ({existing_channel.mention})!", ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=True)
@@ -800,21 +641,20 @@ class HighStaffControlView(discord.ui.View):
             await interaction.response.send_message("❌ The High queue is empty!", ephemeral=True)
             return
 
-        guild = interaction.guild
-
-        # CHECK: Verifico se il tester ha già un canale high-match aperto in questo gamemode
-        for ch in guild.text_channels:
-            if ch.name.startswith(f"high-match-") and ch.name.endswith(f"-{self.gamemode.lower()}"):
-                if str(interaction.user.id) in str(ch.overwrites):
-                    await interaction.response.send_message(f"❌ You already have an active high match channel for **{self.gamemode}**! Finish it first.", ephemeral=True)
-                    return
-
         current_player = high_queues[self.gamemode][0]
+        guild = interaction.guild
         player_member = guild.get_member(current_player['user_id'])
         
         if not player_member:
             high_queues[self.gamemode].pop(0)
             await interaction.response.edit_message(embed=generate_high_queue_embed(self.gamemode), view=self)
+            return
+
+        # CONTROLLO CANALE DUPLICATO: verifica se esiste già un canale match High Tier per questo giocatore
+        expected_channel_name = f"high-match-{player_member.name}-{self.gamemode.lower()}".replace(" ", "-").lower()
+        existing_channel = discord.utils.get(guild.text_channels, name=expected_channel_name)
+        if existing_channel:
+            await interaction.response.send_message(f"❌ A high match channel already exists for this player ({existing_channel.mention})!", ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=True)
@@ -950,7 +790,6 @@ async def leave_cmd(interaction: discord.Interaction):
     user_id = interaction.user.id
     guild = interaction.guild
 
-    # REGOLA 1: Se l'utente è in una stanza match, non può uscire
     for channel in guild.text_channels:
         if (channel.name.startswith("match-") or channel.name.startswith("high-match-")) and str(user_id) in str(channel.overwrites):
             await interaction.response.send_message("❌ You cannot use `/leave` while in an active match room!", ephemeral=True)
@@ -958,37 +797,39 @@ async def leave_cmd(interaction: discord.Interaction):
 
     found = False
     for gm in GAMEMODES:
-        # REGOLA 2: Controllo Coda Standard
+        # Controllo Standard Queue
         q = queues[gm]
-        if q and q[0]['user_id'] == user_id:
-            if active_testers[gm] is not None:
-                await interaction.response.send_message(f"❌ You are 1st in the `{gm}` queue and a Tester is active! You cannot leave right now.", ephemeral=True)
-                return
-
-        for p in list(q):
+        for idx, p in enumerate(list(q)):
             if p['user_id'] == user_id:
+                # Se c'è un tester attivo per questa modalità e l'utente è il primo della fila (idx == 0)
+                if active_testers[gm] is not None and idx == 0:
+                    await interaction.response.send_message("❌ An active tester is present! The first person in queue cannot leave while next up for testing.", ephemeral=True)
+                    return
+                
                 q.remove(p)
                 found = True
                 waitlist_channel = discord.utils.get(guild.text_channels, name=f"waitlist-{gm.lower()}")
                 if waitlist_channel:
                     await waitlist_channel.set_permissions(interaction.user, overwrite=None)
                 await update_board_message(guild, gm)
+                break
 
-        # REGOLA 2 (High): Controllo Coda High
+        # Controllo High Queue
         hq = high_queues[gm]
-        if hq and hq[0]['user_id'] == user_id:
-            if active_high_testers[gm] is not None:
-                await interaction.response.send_message(f"❌ You are 1st in the High `{gm}` queue and a High Tester is active! You cannot leave right now.", ephemeral=True)
-                return
-
-        for p in list(hq):
+        for idx, p in enumerate(list(hq)):
             if p['user_id'] == user_id:
+                # Se c'è un tester attivo per questa modalità High e l'utente è il primo della fila (idx == 0)
+                if active_high_testers[gm] is not None and idx == 0:
+                    await interaction.response.send_message("❌ An active tester is present! The first person in High queue cannot leave while next up for testing.", ephemeral=True)
+                    return
+                
                 hq.remove(p)
                 found = True
                 waitlist_channel = discord.utils.get(guild.text_channels, name=f"high-waitlist-{gm.lower()}")
                 if waitlist_channel:
                     await waitlist_channel.set_permissions(interaction.user, overwrite=None)
                 await update_high_board_message(guild, gm)
+                break
 
     if found:
         await interaction.response.send_message("✅ You have been removed from the queue.", ephemeral=True)
@@ -1081,21 +922,12 @@ async def syncjson(interaction: discord.Interaction):
 # --- EVENTO READY DEL BOT ---
 @bot.event
 async def on_ready():
-    # 1. Caricamento stato persistente
-    load_state_from_file()
-
     print(f"✅ Bot connected as: {bot.user.name}")
-    
-    # 2. Registrazione Viste Persistenti
     for gm in GAMEMODES:
         bot.add_view(StaffControlView(gm))
         bot.add_view(HighStaffControlView(gm))
     bot.add_view(MainPanelView())
     bot.add_view(HighMainPanelView(bot))
-    
-    # Registrazione della vista per i canali di valutazione match anche dopo il riavvio
-    bot.add_view(TesterPrivateEvalView(is_high=False))
-    bot.add_view(TesterPrivateEvalView(is_high=True))
     
     if not check_queue_timeouts.is_running():
         check_queue_timeouts.start()
