@@ -40,11 +40,6 @@ TIER_ORDER = [
 
 HIGH_TIERS_QUEUE = ["LT3", "HT3", "LT2", "HT2", "LT1", "HT1"]
 
-TIER_POINTS = {
-    "HT1": 10, "LT1": 9, "HT2": 8, "LT2": 7, "HT3": 6,
-    "LT3": 5,  "HT4": 4, "LT4": 3, "HT5": 2, "LT5": 1, "Unranked": 0
-}
-
 # --- FUNZIONI UTILITÀ & RANK ---
 def get_current_rank(member: discord.Member, gamemode: str) -> str:
     for role in member.roles:
@@ -68,80 +63,6 @@ def is_valid_promotion(current_rank: str, target_rank: str):
         return False, f"Invalid progression! The player is `{c_rank}` and can only advance to the next rank (`{next_step}`). They cannot skip directly to `{t_rank}`!"
 
     return True, ""
-
-# --- CALCOLO PUNTI E CLASSIFICA ---
-def calculate_player_points(tiers_dict, gamemode=None):
-    if gamemode:
-        return TIER_POINTS.get(tiers_dict.get(gamemode, "Unranked"), 0)
-    return sum(TIER_POINTS.get(tier, 0) for tier in tiers_dict.values())
-
-def build_leaderboard_data(guild: discord.Guild, gamemode=None):
-    players = []
-    for member in guild.members:
-        temp_tiers = {}
-        for role in member.roles:
-            for gm in GAMEMODES:
-                for t in TIER_ORDER:
-                    if role.name == f"{t} {gm}":
-                        temp_tiers[gm] = t
-                        
-        if temp_tiers:
-            pts = calculate_player_points(temp_tiers, gamemode)
-            if pts > 0:
-                mc_name = saved_mc_names.get(member.id, member.display_name)
-                region = saved_regions.get(member.id, "EU")
-                players.append({
-                    "user_id": member.id,
-                    "name": mc_name,
-                    "region": region,
-                    "points": pts,
-                    "tiers": temp_tiers
-                })
-    players.sort(key=lambda x: x["points"], reverse=True)
-    return players
-
-def generate_leaderboard_embed(guild: discord.Guild, user_id: int, selected_gm="Overall", page=0, per_page=5):
-    players = build_leaderboard_data(guild, None if selected_gm == "Overall" else selected_gm)
-    
-    user_pos = "N/A"
-    for i, p in enumerate(players):
-        if p["user_id"] == user_id:
-            user_pos = f"#{i+1}"
-            break
-
-    total_players = len(players)
-    max_pages = max(1, (total_players + per_page - 1) // per_page)
-    page = max(0, min(page, max_pages - 1))
-    
-    start_idx = page * per_page
-    end_idx = start_idx + per_page
-    page_players = players[start_idx:end_idx]
-
-    embed = discord.Embed(
-        title=f"🏆 Tierlist Leaderboard — {selected_gm}",
-        color=0xf1c40f
-    )
-    embed.set_author(name=f"La tua Posizione: {user_pos}", icon_url=guild.icon.url if guild.icon else None)
-
-    if not page_players:
-        embed.description = "*Nessun giocatore in classifica per questa modalità.*"
-    else:
-        for idx, p in enumerate(page_players, start=start_idx + 1):
-            emoji_gm = GAMEMODE_EMOJIS.get(selected_gm, "⭐") if selected_gm != "Overall" else "🏆"
-            tier_display = p['tiers'].get(selected_gm, 'N/A') if selected_gm != "Overall" else f"{len(p['tiers'])} Tiers"
-            
-            value_str = (
-                f"👤 **MC:** `{p['name']}` | 🌍 **Region:** `{p['region']}`\n"
-                f"📊 **Points:** `{p['points']} pts` | {emoji_gm} **Rank:** `{tier_display}`"
-            )
-            embed.add_field(
-                name=f"{idx}. {p['name']}",
-                value=value_str,
-                inline=False
-            )
-
-    embed.set_footer(text=f"Pagina {page + 1}/{max_pages} • Totale Giocatori: {total_players}")
-    return embed, max_pages
 
 # --- FUNZIONE AGGIORNAMENTO FILE JSON SU GITHUB ---
 def update_json_file(guild: discord.Guild):
@@ -167,12 +88,14 @@ def update_json_file(guild: discord.Guild):
                 "tiers": temp_tiers
             })
             
+    # 1. Salvataggio locale
     try:
         with open("data.json", "w", encoding="utf-8") as f:
             json.dump(players_data, f, indent=4, ensure_ascii=False)
     except Exception as e:
         print(f"Errore salvataggio locale data.json: {e}")
 
+    # 2. Sync automatico GitHub
     GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
     REPO_NAME = os.getenv("GITHUB_REPO")
     FILE_PATH = "data.json"
@@ -656,6 +579,7 @@ class StaffControlView(discord.ui.View):
             await interaction.response.edit_message(embed=generate_queue_embed(self.gamemode), view=self)
             return
 
+        # CONTROLLO CANALE DUPLICATO: verifica se esiste già un canale match per questo giocatore/gamemode
         expected_channel_name = f"match-{player_member.name}-{self.gamemode.lower()}".replace(" ", "-").lower()
         existing_channel = discord.utils.get(guild.text_channels, name=expected_channel_name)
         if existing_channel:
@@ -726,6 +650,7 @@ class HighStaffControlView(discord.ui.View):
             await interaction.response.edit_message(embed=generate_high_queue_embed(self.gamemode), view=self)
             return
 
+        # CONTROLLO CANALE DUPLICATO: verifica se esiste già un canale match High Tier per questo giocatore
         expected_channel_name = f"high-match-{player_member.name}-{self.gamemode.lower()}".replace(" ", "-").lower()
         existing_channel = discord.utils.get(guild.text_channels, name=expected_channel_name)
         if existing_channel:
@@ -784,49 +709,6 @@ class HighMainPanelButton(discord.ui.Button):
             await interaction.response.send_message(f"❌ You must be at least **LT3** in `{self.gamemode}` to use this panel!", ephemeral=True)
             return
         await interaction.response.send_modal(HighMinecraftNameModal(self.gamemode))
-
-# --- INTERFACCIA INTERATTIVA CLASSIFICA ---
-class LeaderboardSelect(discord.ui.Select):
-    def __init__(self):
-        options = [discord.SelectOption(label="Overall", emoji="🏆", description="Classifica Generale")]
-        for gm, emoji in GAMEMODE_EMOJIS.items():
-            options.append(discord.SelectOption(label=gm, emoji=emoji, description=f"Top {gm}"))
-        super().__init__(placeholder="Seleziona una Modalità...", min_values=1, max_values=1, options=options, custom_id="lb_select_gm")
-
-    async def callback(self, interaction: discord.Interaction):
-        view: LeaderboardView = self.view
-        view.selected_gm = self.values[0]
-        view.current_page = 0
-        embed, max_pages = generate_leaderboard_embed(interaction.guild, interaction.user.id, view.selected_gm, view.current_page)
-        view.max_pages = max_pages
-        await interaction.response.edit_message(embed=embed, view=view)
-
-class LeaderboardView(discord.ui.View):
-    def __init__(self, user_id=0):
-        super().__init__(timeout=None)
-        self.user_id = user_id
-        self.selected_gm = "Overall"
-        self.current_page = 0
-        self.max_pages = 1
-        self.add_item(LeaderboardSelect())
-
-    @discord.ui.button(label="◀ Indietro", style=discord.ButtonStyle.primary, custom_id="lb_prev")
-    async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.current_page > 0:
-            self.current_page -= 1
-            embed, self.max_pages = generate_leaderboard_embed(interaction.guild, interaction.user.id, self.selected_gm, self.current_page)
-            await interaction.response.edit_message(embed=embed, view=self)
-        else:
-            await interaction.response.send_message("❌ Sei già alla prima pagina!", ephemeral=True)
-
-    @discord.ui.button(label="Avanti ▶", style=discord.ButtonStyle.primary, custom_id="lb_next")
-    async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.current_page < self.max_pages - 1:
-            self.current_page += 1
-            embed, self.max_pages = generate_leaderboard_embed(interaction.guild, interaction.user.id, self.selected_gm, self.current_page)
-            await interaction.response.edit_message(embed=embed, view=self)
-        else:
-            await interaction.response.send_message("❌ Sei già all'ultima pagina!", ephemeral=True)
 
 # --- COMANDI SLASH ---
 @bot.tree.command(name="setup_panel", description="Creates the gamemode selection panel")
@@ -903,25 +785,6 @@ async def setup_high_board(interaction: discord.Interaction, gamemode: str):
     await waitlist_channel.set_permissions(guild.default_role, read_messages=False, send_messages=False)
     await waitlist_channel.send(embed=generate_high_queue_embed(gamemode), view=HighStaffControlView(gamemode))
 
-@bot.tree.command(name="leaderboard", description="Mostra la classifica interattiva del server")
-async def leaderboard_cmd(interaction: discord.Interaction):
-    await interaction.response.defer()
-    view = LeaderboardView(interaction.user.id)
-    embed, max_pages = generate_leaderboard_embed(interaction.guild, interaction.user.id, view.selected_gm, view.current_page)
-    view.max_pages = max_pages
-    await interaction.followup.send(embed=embed, view=view)
-
-@bot.tree.command(name="setup_leaderboard", description="Crea un messaggio fisso per la classifica in questo canale")
-@app_commands.default_permissions(administrator=True)
-async def setup_leaderboard_cmd(interaction: discord.Interaction):
-    await interaction.response.defer(thinking=True, ephemeral=True)
-    await interaction.delete_original_response()
-    
-    view = LeaderboardView(interaction.user.id)
-    embed, max_pages = generate_leaderboard_embed(interaction.guild, interaction.user.id, view.selected_gm, view.current_page)
-    view.max_pages = max_pages
-    await interaction.channel.send(embed=embed, view=view)
-
 @bot.tree.command(name="leave", description="Leave your current queue")
 async def leave_cmd(interaction: discord.Interaction):
     user_id = interaction.user.id
@@ -934,9 +797,11 @@ async def leave_cmd(interaction: discord.Interaction):
 
     found = False
     for gm in GAMEMODES:
+        # Controllo Standard Queue
         q = queues[gm]
         for idx, p in enumerate(list(q)):
             if p['user_id'] == user_id:
+                # Se c'è un tester attivo per questa modalità e l'utente è il primo della fila (idx == 0)
                 if active_testers[gm] is not None and idx == 0:
                     await interaction.response.send_message("❌ An active tester is present! The first person in queue cannot leave while next up for testing.", ephemeral=True)
                     return
@@ -949,9 +814,11 @@ async def leave_cmd(interaction: discord.Interaction):
                 await update_board_message(guild, gm)
                 break
 
+        # Controllo High Queue
         hq = high_queues[gm]
         for idx, p in enumerate(list(hq)):
             if p['user_id'] == user_id:
+                # Se c'è un tester attivo per questa modalità High e l'utente è il primo della fila (idx == 0)
                 if active_high_testers[gm] is not None and idx == 0:
                     await interaction.response.send_message("❌ An active tester is present! The first person in High queue cannot leave while next up for testing.", ephemeral=True)
                     return
@@ -1061,7 +928,6 @@ async def on_ready():
         bot.add_view(HighStaffControlView(gm))
     bot.add_view(MainPanelView())
     bot.add_view(HighMainPanelView(bot))
-    bot.add_view(LeaderboardView(0))
     
     if not check_queue_timeouts.is_running():
         check_queue_timeouts.start()
