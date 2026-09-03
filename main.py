@@ -40,6 +40,27 @@ TIER_ORDER = [
 
 HIGH_TIERS_QUEUE = ["LT3", "HT3", "LT2", "HT2", "LT1", "HT1"]
 
+# --- GESTIONE STATISTICHE GRANDMASTER (GM) ---
+GM_STATS_FILE = "gm_stats.json"
+
+def load_gm_stats():
+    if os.path.exists(GM_STATS_FILE):
+        try:
+            with open(GM_STATS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+def save_gm_stats(stats):
+    try:
+        with open(GM_STATS_FILE, "w", encoding="utf-8") as f:
+            json.dump(stats, f, indent=4, ensure_ascii=False)
+    except Exception as e:
+        print(f"Errore durante il salvataggio di gm_stats.json: {e}")
+
+gm_stats_data = load_gm_stats()
+
 # --- FUNZIONI UTILITÀ & RANK ---
 def get_current_rank(member: discord.Member, gamemode: str) -> str:
     for role in member.roles:
@@ -650,7 +671,7 @@ class HighStaffControlView(discord.ui.View):
             await interaction.response.edit_message(embed=generate_high_queue_embed(self.gamemode), view=self)
             return
 
-        # CONTROLLO CANALE DUPLICATO: verifica se esiste già un canale match High Tier per questo giocatore
+        # CONTROLLO CANALE DUPLICATO: verifica se existe già un canale match High Tier per questo giocatore
         expected_channel_name = f"high-match-{player_member.name}-{self.gamemode.lower()}".replace(" ", "-").lower()
         existing_channel = discord.utils.get(guild.text_channels, name=expected_channel_name)
         if existing_channel:
@@ -918,6 +939,92 @@ async def syncjson(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     update_json_file(interaction.guild)
     await interaction.followup.send("✅ File data.json aggiornato con successo su GitHub!")
+
+# --- AGGIUNTA COMANDO SLASH /GRANDMASTER ---
+@bot.tree.command(name="grandmaster", description="Annuncia il vincitore del match Grandmaster e aggiorna la classifica")
+@app_commands.describe(player1="Primo giocatore", player2="Secondo giocatore", winner="Vincitore del match")
+async def grandmaster_cmd(interaction: discord.Interaction, player1: discord.Member, player2: discord.Member, winner: discord.Member):
+    if winner.id not in [player1.id, player2.id]:
+        await interaction.response.send_message("❌ Il vincitore deve essere uno dei due giocatori specificati!", ephemeral=True)
+        return
+
+    guild = interaction.guild
+
+    # 1. Gestione Ruolo 🔥 Grandmaster
+    gm_role_name = "🔥 Grandmaster"
+    gm_role = discord.utils.get(guild.roles, name=gm_role_name)
+    if not gm_role:
+        try:
+            gm_role = await guild.create_role(name=gm_role_name, color=discord.Color.orange(), mentionable=True)
+        except Exception:
+            gm_role = None
+
+    if gm_role:
+        # Rimuove il ruolo da precedenti GM nel server
+        for m in gm_role.members:
+            if m.id != winner.id:
+                try: await m.remove_roles(gm_role)
+                except Exception: pass
+        # Assegna al vincitore
+        try: await winner.add_roles(gm_role)
+        except Exception: pass
+
+    # 2. Aggiornamento Conteggio GM
+    winner_str_id = str(winner.id)
+    gm_stats_data[winner_str_id] = gm_stats_data.get(winner_str_id, 0) + 1
+    save_gm_stats(gm_stats_data)
+
+    # Nomi Minecraft
+    winner_mc_name = saved_mc_names.get(winner.id, winner.display_name)
+
+    # 3. Costruzione della Classifica Top 5 GM
+    sorted_gm = sorted(gm_stats_data.items(), key=lambda x: x[1], reverse=True)
+
+    # Creazione Embed principale elegante
+    embed = discord.Embed(
+        title="🔥 GRANDMASTER SHOWDOWN 🔥",
+        description=f"⚔️ **Match:** {player1.mention} **VS** {player2.mention}\n\n👑 **WINNER & NEW GRANDMASTER:** {winner.mention}",
+        color=0xff4500
+    )
+    embed.set_thumbnail(url=f"https://render.crafty.gg/3d/bust/{winner_mc_name}")
+    embed.set_footer(text=f"Grandmaster Event • {guild.name}", icon_url=guild.icon.url if guild.icon else None)
+
+    # Fuochi animati
+    SOUL_FIRE_URL = "https://minecraft.wiki/images/Soul_Fire_JE1.gif?b65b1"
+    NORMAL_FIRE_URL = "https://minecraft.wiki/images/Fire.gif?69f99"
+
+    # Rettangolo 1: Vincitore Corrente (Fuoco Blu - Soul Fire)
+    winner_count = gm_stats_data[winner_str_id]
+    embed.add_field(
+        name=f"🟦 1° [CURRENT GM] - {winner.display_name}",
+        value=f"![SoulFire]({SOUL_FIRE_URL})\n**IGN:** `{winner_mc_name}`\n**Titoli GM vinti:** `{winner_count}`",
+        inline=False
+    )
+
+    # Rettangoli 2-5: Top 2-5 Storici (Fuoco Standard)
+    top_candidates = [item for item in sorted_gm if item[0] != winner_str_id][:4]
+
+    for rank_idx, (p_id_str, count) in enumerate(top_candidates, start=2):
+        member_obj = guild.get_member(int(p_id_str))
+        p_name = member_obj.display_name if member_obj else f"User {p_id_str}"
+        p_mc = saved_mc_names.get(int(p_id_str), p_name)
+
+        embed.add_field(
+            name=f"🟧 {rank_idx}° Place - {p_name}",
+            value=f"![Fire]({NORMAL_FIRE_URL})\n**IGN:** `{p_mc}`\n**Titoli GM vinti:** `{count}`",
+            inline=False
+        )
+
+    # Se ci sono meno di 5 giocatori totali, riempie i rettangoli vuoti
+    remaining_slots = 5 - (1 + len(top_candidates))
+    for r in range(5 - remaining_slots + 1, 6):
+        embed.add_field(
+            name=f"⬛ {r}° Place - Non Assegnato",
+            value=f"![Fire]({NORMAL_FIRE_URL})\n*Nessun dato registrato*",
+            inline=False
+        )
+
+    await interaction.response.send_message(content=f"🎉 Congratulazioni a {winner.mention}!", embed=embed)
 
 # --- EVENTO READY DEL BOT ---
 @bot.event
