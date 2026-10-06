@@ -1,0 +1,36 @@
+{
+  "url": "http://127.0.0.1:8080/",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 800,
+      "status": 200,
+      "title": "Rank Desk",
+      "hasCanvas": false,
+      "bodyTextLen": 806,
+      "bodyTextHash": "22cf426a21f3ecd7f73d96d68332774d5e72ee3e9145389d835f5ed61a2be401",
+      "bodyTextPrefix": "COMBAT TIERLIST Rank Desk Reset Scarica bot I tester vedono semp",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-preview.png"
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "status": 200,
+      "title": "Rank Desk",
+      "hasCanvas": false,
+      "bodyTextLen": 528,
+      "bodyTextHash": "0382f997c3b0809ef93fa6204689798c851d790dad493f5b03f79affeb72a798",
+      "bodyTextPrefix": "COMBAT TIERLIST Rank Desk Bot I tester vedono sempre la coda del",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-preview-mobile.png"
+    }
+  },
+  "brandWarnings": [],
+  "authWarnings": [],
+  "verdictFile": "/workspace/screenshots/app-builder-preview.json"
+}
